@@ -5,6 +5,11 @@
 [![Docker](https://img.shields.io/badge/deploy-Docker-2496ED?logo=docker&logoColor=white)](docker/docker-compose.cloudssh.yml)
 [![Agent Skill](https://img.shields.io/badge/Agent-Ed25519%20Device-111827)](skills/cloudssh-agent/SKILL.md)
 
+<p align="center">
+  <a href="https://t.me/zhanzhangck"><img src="https://img.shields.io/badge/Telegram-站长仓库-blue?logo=telegram" alt="Telegram 站长仓库"></a>
+  <a href="https://t.me/vpsbbq"><img src="https://img.shields.io/badge/Telegram-NexHub_AI社区-blue?logo=telegram" alt="Telegram NexHub AI社区"></a>
+</p>
+
 CloudSSH 是面向个人和小团队的自托管云 SSH 与 Agent 运维平台。它基于
 [Termix 2.6.0](https://github.com/Termix-SSH/Termix)，重点补齐了项目级资产隔离、
 可共享的持续会话、无 Token 的 Agent Skill、凭据安全、完整审计和容器内一键更新。
