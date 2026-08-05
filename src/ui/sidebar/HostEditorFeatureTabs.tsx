@@ -1,0 +1,370 @@
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Box, FolderSearch, Server } from "lucide-react";
+
+import { Input } from "@/components/input";
+import { SectionCard, SettingRow, FakeSwitch } from "@/components/section-card";
+import { getCredentials } from "@/main-axios";
+import type { HostEditorForm } from "./HostEditorData";
+
+type SetHostField = <K extends keyof HostEditorForm>(
+  key: K,
+  value: HostEditorForm[K],
+) => void;
+
+export function HostDockerTab({
+  form,
+  setField,
+}: {
+  form: HostEditorForm;
+  setField: SetHostField;
+}) {
+  const { t } = useTranslation();
+  const dockerConfig = form.dockerConfig ?? { runtime: "docker" as const };
+  const runtime =
+    dockerConfig.runtime === "podman"
+      ? ("podman" as const)
+      : ("docker" as const);
+
+  return (
+    <SectionCard
+      title={t("hosts.dockerIntegration")}
+      icon={<Box className="size-3.5" />}
+    >
+      <div className="flex flex-col gap-4 py-3">
+        <SettingRow
+          label={t("hosts.enableDockerMonitor")}
+          description={t("hosts.enableDockerMonitorDesc")}
+        >
+          <FakeSwitch
+            checked={form.enableDocker}
+            onChange={(v) => setField("enableDocker", v)}
+          />
+        </SettingRow>
+        {form.enableDocker && (
+          <SettingRow
+            label={t("hosts.containerRuntime")}
+            description={t("hosts.containerRuntimeDesc")}
+          >
+            <select
+              value={runtime}
+              onChange={(e) =>
+                setField("dockerConfig", {
+                  ...dockerConfig,
+                  runtime: e.target.value as "docker" | "podman",
+                })
+              }
+              className="h-7 w-44 text-xs border border-border bg-background px-2 outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="docker">
+                {t("hosts.containerRuntimeDocker")}
+              </option>
+              <option value="podman">
+                {t("hosts.containerRuntimePodman")}
+              </option>
+            </select>
+          </SettingRow>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+export function HostProxmoxTab({
+  form,
+  setField,
+}: {
+  form: HostEditorForm;
+  setField: SetHostField;
+}) {
+  const { t } = useTranslation();
+  const [credentials, setCredentials] = useState<
+    { id: number; name: string; username: string | null }[]
+  >([]);
+
+  useEffect(() => {
+    getCredentials()
+      .then((res: unknown) => {
+        const raw =
+          (res as { credentials?: unknown })?.credentials ?? res ?? [];
+        const list = (Array.isArray(raw) ? raw : []).map(
+          (c: Record<string, unknown>) => ({
+            id: c.id as number,
+            name: c.name as string,
+            username: (c.username as string | null) ?? null,
+          }),
+        );
+        setCredentials(list);
+      })
+      .catch(() => {});
+  }, []);
+
+  const cfg = form.proxmoxConfig ?? {
+    defaultCredentialId: null,
+    defaultAuthType: "password",
+    windowsPatterns: "win, windows",
+    dockerPatterns: "docker",
+    preferredPrefixes: "10., 192.168.",
+    autoSyncEnabled: false,
+    syncIntervalMinutes: 15,
+    markMissingGuests: true,
+  };
+  const lastSyncResult = cfg.lastSyncResult;
+  const lastSyncSummary = lastSyncResult
+    ? t("hosts.proxmoxLastSyncSummary", {
+        created: lastSyncResult.created,
+        updated: lastSyncResult.updated,
+        markedMissing: lastSyncResult.markedMissing,
+        skipped: lastSyncResult.skipped,
+      })
+    : t("hosts.proxmoxLastSyncNoResult");
+  const lastSyncDescription = cfg.lastSyncAt
+    ? `${new Date(cfg.lastSyncAt).toLocaleString()} · ${lastSyncSummary}`
+    : t("hosts.proxmoxLastSyncNever");
+
+  return (
+    <SectionCard
+      title={t("hosts.proxmoxIntegration")}
+      icon={<Server className="size-3.5" />}
+    >
+      <div className="flex flex-col gap-0 py-1">
+        <SettingRow
+          label={t("hosts.enableProxmox")}
+          description={
+            <>
+              {t("hosts.enableProxmoxDesc")}{" "}
+              <a
+                href="https://docs.termix.site/features/files-and-hosts/proxmox-import"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent-brand hover:underline"
+              >
+                {t("hosts.docsLink")}
+              </a>
+            </>
+          }
+        >
+          <FakeSwitch
+            checked={form.enableProxmox}
+            onChange={(v) => setField("enableProxmox", v)}
+          />
+        </SettingRow>
+        {form.enableProxmox && (
+          <>
+            <SettingRow
+              label={t("hosts.proxmoxDefaultAuthType")}
+              description={t("hosts.proxmoxDefaultAuthTypeDesc")}
+            >
+              <select
+                value={cfg.defaultAuthType ?? "password"}
+                onChange={(e) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    defaultAuthType: e.target.value,
+                  })
+                }
+                className="h-7 w-44 text-xs border border-border bg-background px-2 outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="password">{t("hosts.authTypePassword")}</option>
+                <option value="key">{t("hosts.authTypeKey")}</option>
+                <option value="credential">
+                  {t("hosts.authTypeCredential")}
+                </option>
+                <option value="opkssh">{t("hosts.authTypeOpkssh")}</option>
+                <option value="none">{t("hosts.authTypeNone")}</option>
+              </select>
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxDefaultCredential")}
+              description={t("hosts.proxmoxDefaultCredentialDesc")}
+            >
+              <select
+                value={cfg.defaultCredentialId ?? ""}
+                onChange={(e) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    defaultCredentialId: e.target.value
+                      ? Number(e.target.value)
+                      : null,
+                  })
+                }
+                className="h-7 w-44 text-xs border border-border bg-background px-2 outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">{t("hosts.none")}</option>
+                {credentials.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.username ? `${c.name} (${c.username})` : c.name}
+                  </option>
+                ))}
+              </select>
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxWindowsDetection")}
+              description={t("hosts.proxmoxWindowsDetectionDesc")}
+            >
+              <Input
+                className="w-44 h-7 text-xs"
+                value={cfg.windowsPatterns}
+                onChange={(e) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    windowsPatterns: e.target.value,
+                  })
+                }
+                placeholder="win, windows"
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxDockerDetection")}
+              description={t("hosts.proxmoxDockerDetectionDesc")}
+            >
+              <Input
+                className="w-44 h-7 text-xs"
+                value={cfg.dockerPatterns}
+                onChange={(e) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    dockerPatterns: e.target.value,
+                  })
+                }
+                placeholder="docker"
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxPreferredRanges")}
+              description={t("hosts.proxmoxPreferredRangesDesc")}
+            >
+              <Input
+                className="w-44 h-7 text-xs"
+                value={cfg.preferredPrefixes}
+                onChange={(e) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    preferredPrefixes: e.target.value,
+                  })
+                }
+                placeholder="10., 192.168."
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxAutoSync")}
+              description={t("hosts.proxmoxAutoSyncDesc")}
+            >
+              <FakeSwitch
+                checked={cfg.autoSyncEnabled === true}
+                onChange={(v) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    autoSyncEnabled: v,
+                  })
+                }
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxSyncInterval")}
+              description={t("hosts.proxmoxSyncIntervalDesc")}
+            >
+              <Input
+                className="w-24 h-7 text-xs"
+                type="number"
+                min={5}
+                value={cfg.syncIntervalMinutes ?? 15}
+                onChange={(e) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    syncIntervalMinutes: Math.max(
+                      5,
+                      Number.parseInt(e.target.value || "15", 10),
+                    ),
+                  })
+                }
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxMarkMissing")}
+              description={t("hosts.proxmoxMarkMissingDesc")}
+            >
+              <FakeSwitch
+                checked={cfg.markMissingGuests !== false}
+                onChange={(v) =>
+                  setField("proxmoxConfig", {
+                    ...cfg,
+                    markMissingGuests: v,
+                  })
+                }
+              />
+            </SettingRow>
+            <SettingRow
+              label={t("hosts.proxmoxLastSync")}
+              description={lastSyncDescription}
+            >
+              <span
+                className={`text-xs ${
+                  cfg.lastSyncStatus === "error"
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+                }`}
+                title={cfg.lastSyncError ?? undefined}
+              >
+                {cfg.lastSyncStatus
+                  ? t(`hosts.proxmoxLastSyncStatus.${cfg.lastSyncStatus}`)
+                  : t("hosts.proxmoxLastSyncStatus.pending")}
+              </span>
+            </SettingRow>
+          </>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+export function HostFilesTab({
+  form,
+  setField,
+}: {
+  form: HostEditorForm;
+  setField: SetHostField;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <SectionCard
+      title={t("hosts.fileManager")}
+      icon={<FolderSearch className="size-3.5" />}
+    >
+      <div className="flex flex-col gap-4 py-3">
+        <SettingRow
+          label={t("hosts.enableFileManagerMonitor")}
+          description={t("hosts.enableFileManagerMonitorDesc")}
+        >
+          <FakeSwitch
+            checked={form.enableFileManager}
+            onChange={(v) => setField("enableFileManager", v)}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("hosts.scpLegacyLabel")}
+          description={t("hosts.scpLegacyDesc")}
+        >
+          <FakeSwitch
+            checked={form.scpLegacy}
+            onChange={(v) => setField("scpLegacy", v)}
+          />
+        </SettingRow>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("hosts.defaultPathLabel")}
+          </label>
+          <Input
+            placeholder="/"
+            value={form.defaultPath}
+            onChange={(e) => setField("defaultPath", e.target.value)}
+          />
+          <span className="text-[10px] text-muted-foreground">
+            {t("hosts.fileManagerPathHint")}
+          </span>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}

@@ -1,0 +1,785 @@
+import type { AuthenticatedRequest } from "../../../types/index.js";
+import type { Request, RequestHandler, Router } from "express";
+import bcrypt from "bcryptjs";
+import QRCode from "qrcode";
+import speakeasy from "speakeasy";
+import { AuthManager } from "../../utils/auth-manager.js";
+import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
+import { FieldCrypto } from "../../utils/field-crypto.js";
+import { LazyFieldEncryption } from "../../utils/lazy-field-encryption.js";
+import { authLogger } from "../../utils/logger.js";
+import { loginRateLimiter } from "../../utils/login-rate-limiter.js";
+import {
+  generateDeviceFingerprint,
+  parseUserAgent,
+} from "../../utils/user-agent-parser.js";
+import {
+  createCurrentSessionRepository,
+  createCurrentSettingsRepository,
+  createCurrentTrustedDeviceRepository,
+  createCurrentUserRepository,
+} from "../repositories/factory.js";
+import type { UserRecord } from "../repositories/user-repository.js";
+
+type NativeAppRequestChecker = (req: Request) => boolean;
+
+interface UserTotpRoutesDeps {
+  authenticateJWT: RequestHandler;
+  authManager: AuthManager;
+  isNativeAppRequest: NativeAppRequestChecker;
+}
+
+export async function verifyTotpReauth(
+  userRecord: UserRecord,
+  credential: string,
+  userDataKey?: Buffer | null,
+): Promise<boolean> {
+  if (userRecord.totpSecret) {
+    const totpSecret = userDataKey
+      ? LazyFieldEncryption.safeGetFieldValue(
+          userRecord.totpSecret,
+          userDataKey,
+          userRecord.id,
+          "totpSecret",
+        )
+      : userRecord.totpSecret;
+
+    if (totpSecret) {
+      const totpMatch = speakeasy.totp.verify({
+        secret: totpSecret,
+        encoding: "base32",
+        token: credential,
+        window: 2,
+      });
+      if (totpMatch) {
+        return true;
+      }
+    }
+  }
+
+  const rawBackupCodes =
+    userDataKey && userRecord.totpBackupCodes
+      ? LazyFieldEncryption.safeGetFieldValue(
+          userRecord.totpBackupCodes,
+          userDataKey,
+          userRecord.id,
+          "totpBackupCodes",
+        )
+      : userRecord.totpBackupCodes;
+
+  let backupCodes: unknown = [];
+  try {
+    backupCodes = rawBackupCodes ? JSON.parse(rawBackupCodes) : [];
+  } catch {
+    backupCodes = [];
+  }
+  if (Array.isArray(backupCodes)) {
+    const backupIndex = backupCodes.indexOf(credential);
+    if (backupIndex !== -1) {
+      backupCodes.splice(backupIndex, 1);
+      const updatedJson = JSON.stringify(backupCodes);
+      const storedValue = userDataKey
+        ? FieldCrypto.encryptField(
+            updatedJson,
+            userDataKey,
+            userRecord.id,
+            "totpBackupCodes",
+          )
+        : updatedJson;
+      await createCurrentUserRepository().update(userRecord.id, {
+        totpBackupCodes: storedValue,
+      });
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function registerUserTotpRoutes(
+  router: Router,
+  { authenticateJWT, authManager, isNativeAppRequest }: UserTotpRoutesDeps,
+): void {
+  /**
+   * @openapi
+   * /users/totp/setup:
+   *   post:
+   *     summary: Setup TOTP
+   *     description: Initiates TOTP setup by generating a secret and QR code.
+   *     tags:
+   *       - Users
+   *     responses:
+   *       200:
+   *         description: TOTP setup initiated with secret and QR code.
+   *       400:
+   *         description: TOTP is already enabled.
+   *       404:
+   *         description: User not found.
+   *       500:
+   *         description: Failed to setup TOTP.
+   */
+  router.post("/totp/setup", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    try {
+      const userRecord = await createCurrentUserRepository().findById(userId);
+      if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (userRecord.totpEnabled) {
+        return res.status(400).json({ error: "TOTP is already enabled" });
+      }
+
+      const secret = speakeasy.generateSecret({
+        name: `Termix (${userRecord.username})`,
+        length: 32,
+      });
+
+      await createCurrentUserRepository().update(userId, {
+        totpSecret: secret.base32,
+      });
+
+      const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url || "");
+
+      res.json({
+        secret: secret.base32,
+        qr_code: qrCodeUrl,
+      });
+    } catch (err) {
+      authLogger.error("Failed to setup TOTP", err);
+      res.status(500).json({ error: "Failed to setup TOTP" });
+    }
+  });
+
+  /**
+   * @openapi
+   * /users/totp/enable:
+   *   post:
+   *     summary: Enable TOTP
+   *     description: Enables TOTP after verifying the initial code.
+   *     tags:
+   *       - Users
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               totp_code:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: TOTP enabled successfully with backup codes.
+   *       400:
+   *         description: TOTP code is required or TOTP already enabled.
+   *       401:
+   *         description: Invalid TOTP code.
+   *       404:
+   *         description: User not found.
+   *       500:
+   *         description: Failed to enable TOTP.
+   */
+  router.post("/totp/enable", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const sessionId = (req as AuthenticatedRequest).sessionId;
+    const { totp_code } = req.body;
+
+    if (!totp_code) {
+      return res.status(400).json({ error: "TOTP code is required" });
+    }
+
+    try {
+      const passwordLoginAllowed =
+        await createCurrentSettingsRepository().getBoolean(
+          "allow_password_login",
+          true,
+        );
+      if (!passwordLoginAllowed) {
+        return res.status(409).json({
+          error:
+            "Cannot enable 2FA while password login is disabled. Enable password login first.",
+        });
+      }
+
+      const userRecord = await createCurrentUserRepository().findById(userId);
+      if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (userRecord.totpEnabled) {
+        return res.status(400).json({ error: "TOTP is already enabled" });
+      }
+
+      if (!userRecord.totpSecret) {
+        return res.status(400).json({ error: "TOTP setup not initiated" });
+      }
+
+      const userDataKey = authManager.getUserDataKey(userId);
+      const totpSecret = userDataKey
+        ? LazyFieldEncryption.safeGetFieldValue(
+            userRecord.totpSecret,
+            userDataKey,
+            userId,
+            "totpSecret",
+          )
+        : userRecord.totpSecret;
+
+      const verified = speakeasy.totp.verify({
+        secret: totpSecret,
+        encoding: "base32",
+        token: totp_code,
+        window: 2,
+      });
+
+      if (!verified) {
+        return res.status(401).json({ error: "Invalid TOTP code" });
+      }
+
+      const backupCodes = Array.from({ length: 8 }, () =>
+        Math.random().toString(36).substring(2, 10).toUpperCase(),
+      );
+
+      const backupCodesJson = JSON.stringify(backupCodes);
+      const storedBackupCodes = userDataKey
+        ? FieldCrypto.encryptField(
+            backupCodesJson,
+            userDataKey,
+            userId,
+            "totpBackupCodes",
+          )
+        : backupCodesJson;
+
+      await createCurrentUserRepository().update(userId, {
+        totpEnabled: true,
+        totpBackupCodes: storedBackupCodes,
+      });
+
+      await createCurrentSessionRepository().revokeAllForUser(
+        userId,
+        sessionId,
+      );
+      await createCurrentTrustedDeviceRepository().deleteByUserId(userId);
+
+      try {
+        await DatabaseSaveTrigger.forceSave("totp_enable_explicit_save");
+      } catch (saveError) {
+        authLogger.error(
+          "Failed to persist TOTP enablement to disk",
+          saveError,
+          {
+            operation: "totp_enable_db_save_failed",
+            userId,
+          },
+        );
+      }
+
+      res.json({
+        message: "TOTP enabled successfully",
+        backup_codes: backupCodes,
+      });
+    } catch (err) {
+      authLogger.error("Failed to enable TOTP", err);
+      res.status(500).json({ error: "Failed to enable TOTP" });
+    }
+  });
+
+  /**
+   * @openapi
+   * /users/totp/disable:
+   *   post:
+   *     summary: Disable TOTP
+   *     description: Disables TOTP for a user.
+   *     tags:
+   *       - Users
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               password:
+   *                 type: string
+   *               totp_code:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: TOTP disabled successfully.
+   *       400:
+   *         description: Password or TOTP code is required.
+   *       401:
+   *         description: Incorrect password or invalid TOTP code.
+   *       404:
+   *         description: User not found.
+   *       500:
+   *         description: Failed to disable TOTP.
+   */
+  router.post("/totp/disable", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const { password, totp_code } = req.body;
+    try {
+      const userRecord = await createCurrentUserRepository().findById(userId);
+      if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!totp_code || (!userRecord.isOidc && !password)) {
+        return res.status(400).json({
+          error: userRecord.isOidc
+            ? "A TOTP code is required"
+            : "Both password and TOTP code are required",
+        });
+      }
+
+      if (
+        !userRecord.isOidc &&
+        (!userRecord.passwordHash ||
+          !(await bcrypt.compare(password, userRecord.passwordHash)))
+      ) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+
+      if (!userRecord.totpEnabled) {
+        return res.status(400).json({ error: "TOTP is not enabled" });
+      }
+
+      const userDataKey = authManager.getUserDataKey(userId);
+      const verified = await verifyTotpReauth(
+        userRecord,
+        totp_code,
+        userDataKey,
+      );
+      if (!verified) {
+        return res
+          .status(401)
+          .json({ error: "Incorrect password or invalid TOTP code" });
+      }
+
+      await createCurrentUserRepository().update(userId, {
+        totpEnabled: false,
+        totpSecret: null,
+        totpBackupCodes: null,
+      });
+      authLogger.info("Two-factor authentication disabled", {
+        operation: "totp_disable",
+        userId,
+      });
+
+      res.json({ message: "TOTP disabled successfully" });
+    } catch (err) {
+      authLogger.error("Failed to disable TOTP", err);
+      res.status(500).json({ error: "Failed to disable TOTP" });
+    }
+  });
+
+  /**
+   * @openapi
+   * /users/totp/backup-codes:
+   *   post:
+   *     summary: Generate new backup codes
+   *     description: Generates new TOTP backup codes.
+   *     tags:
+   *       - Users
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               password:
+   *                 type: string
+   *               totp_code:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: New backup codes generated.
+   *       400:
+   *         description: Password or TOTP code is required.
+   *       401:
+   *         description: Incorrect password or invalid TOTP code.
+   *       404:
+   *         description: User not found.
+   *       500:
+   *         description: Failed to generate backup codes.
+   */
+  router.post("/totp/backup-codes", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const { password, totp_code } = req.body;
+    try {
+      const userRecord = await createCurrentUserRepository().findById(userId);
+      if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!totp_code || (!userRecord.isOidc && !password)) {
+        return res.status(400).json({
+          error: userRecord.isOidc
+            ? "A TOTP code is required"
+            : "Both password and TOTP code are required",
+        });
+      }
+
+      if (
+        !userRecord.isOidc &&
+        (!userRecord.passwordHash ||
+          !(await bcrypt.compare(password, userRecord.passwordHash)))
+      ) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+
+      if (!userRecord.totpEnabled) {
+        return res.status(400).json({ error: "TOTP is not enabled" });
+      }
+
+      const userDataKey = authManager.getUserDataKey(userId);
+      const verified = await verifyTotpReauth(
+        userRecord,
+        totp_code,
+        userDataKey,
+      );
+      if (!verified) {
+        return res
+          .status(401)
+          .json({ error: "Incorrect password or invalid TOTP code" });
+      }
+
+      const backupCodes = Array.from({ length: 8 }, () =>
+        Math.random().toString(36).substring(2, 10).toUpperCase(),
+      );
+
+      const backupCodesJson = JSON.stringify(backupCodes);
+      const storedBackupCodes = userDataKey
+        ? FieldCrypto.encryptField(
+            backupCodesJson,
+            userDataKey,
+            userId,
+            "totpBackupCodes",
+          )
+        : backupCodesJson;
+
+      await createCurrentUserRepository().update(userId, {
+        totpBackupCodes: storedBackupCodes,
+      });
+
+      res.json({ backup_codes: backupCodes });
+    } catch (err) {
+      authLogger.error("Failed to generate backup codes", err);
+      res.status(500).json({ error: "Failed to generate backup codes" });
+    }
+  });
+
+  /**
+   * 使用当前登录会话中的 TOTP 完成敏感操作二次验证。
+   * 验证成功后只提升当前会话，不创建新会话，也不会将设备加入信任列表。
+   */
+  router.post("/totp/step-up", authenticateJWT, async (req, res) => {
+    const authReq = req as AuthenticatedRequest;
+    const userId = authReq.userId;
+    const sessionId = authReq.sessionId;
+    const totpCode =
+      typeof req.body?.totp_code === "string" ? req.body.totp_code.trim() : "";
+
+    if (!sessionId || authReq.apiKeyId || authReq.pendingTOTP) {
+      return res.status(401).json({
+        error: "二次验证仅允许已登录的交互式会话",
+        code: "INTERACTIVE_SESSION_REQUIRED",
+      });
+    }
+    if (!totpCode) {
+      return res.status(400).json({ error: "TOTP 验证码不能为空" });
+    }
+
+    try {
+      const userRecord = await createCurrentUserRepository().findById(userId);
+      if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (!userRecord.totpEnabled || !userRecord.totpSecret) {
+        return res.status(409).json({
+          error: "当前账号未启用 TOTP 身份验证器",
+          code: "TOTP_NOT_ENROLLED",
+        });
+      }
+
+      const lockStatus = loginRateLimiter.isTOTPLocked(userId);
+      if (lockStatus.locked) {
+        return res.status(429).json({
+          error: `TOTP 尝试次数过多，请在 ${lockStatus.remainingTime} 秒后重试`,
+          remainingTime: lockStatus.remainingTime,
+          code: "TOTP_RATE_LIMITED",
+        });
+      }
+
+      const userDataKey = authManager.getUserDataKey(userId);
+      if (!userDataKey) {
+        return res.status(401).json({
+          error: "会话数据已锁定，请重新登录",
+          code: "SESSION_EXPIRED",
+        });
+      }
+
+      const verified = await verifyTotpReauth(
+        userRecord,
+        totpCode,
+        userDataKey,
+      );
+      if (!verified) {
+        loginRateLimiter.recordFailedTOTPAttempt(userId);
+        return res.status(401).json({
+          error: "TOTP 验证码无效",
+          code: "INVALID_TOTP_CODE",
+          remainingAttempts: loginRateLimiter.getRemainingTOTPAttempts(userId),
+        });
+      }
+
+      loginRateLimiter.resetTOTPAttempts(userId);
+      const verifiedAt = Math.floor(Date.now() / 1000);
+      const refreshed = await authManager.refreshSessionToken(
+        userId,
+        sessionId,
+        { mfaVerifiedAt: verifiedAt },
+      );
+      if (!refreshed) {
+        return res.status(401).json({
+          error: "当前会话已失效，请重新登录",
+          code: "SESSION_EXPIRED",
+        });
+      }
+
+      res.cookie(
+        "jwt",
+        refreshed.token,
+        authManager.getSecureCookieOptions(req, refreshed.maxAge),
+      );
+      authLogger.success("TOTP step-up verification successful", {
+        operation: "totp_step_up_success",
+        userId,
+        sessionId,
+      });
+      return res.json({
+        success: true,
+        method: "totp",
+        mfa_verified_at: verifiedAt,
+        ...(isNativeAppRequest(req) ? { token: refreshed.token } : {}),
+      });
+    } catch (error) {
+      authLogger.error("TOTP step-up verification failed", error, {
+        operation: "totp_step_up_error",
+        userId,
+        sessionId,
+      });
+      return res.status(500).json({ error: "TOTP 二次验证失败" });
+    }
+  });
+
+  /**
+   * @openapi
+   * /users/totp/verify-login:
+   *   post:
+   *     summary: Verify TOTP during login
+   *     description: Verifies the TOTP code during login.
+   *     tags:
+   *       - Users
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               temp_token:
+   *                 type: string
+   *               totp_code:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: TOTP verification successful.
+   *       400:
+   *         description: Token and TOTP code are required.
+   *       401:
+   *         description: Invalid temporary token or TOTP code.
+   *       404:
+   *         description: User not found.
+   *       500:
+   *         description: TOTP verification failed.
+   */
+  router.post("/totp/verify-login", async (req, res) => {
+    const { temp_token, totp_code, rememberMe } = req.body;
+
+    if (!temp_token || !totp_code) {
+      return res
+        .status(400)
+        .json({ error: "Token and TOTP code are required" });
+    }
+
+    try {
+      const decoded = await authManager.verifyJWTToken(temp_token);
+      if (!decoded || !decoded.pendingTOTP) {
+        return res.status(401).json({ error: "Invalid temporary token" });
+      }
+
+      const userRecord = await createCurrentUserRepository().findById(
+        decoded.userId,
+      );
+      if (!userRecord) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const lockStatus = loginRateLimiter.isTOTPLocked(userRecord.id);
+      if (lockStatus.locked) {
+        authLogger.warn("TOTP verification blocked due to rate limiting", {
+          operation: "totp_verify_blocked",
+          userId: userRecord.id,
+          remainingTime: lockStatus.remainingTime,
+        });
+        return res.status(429).json({
+          error: `Rate limited: Too many TOTP verification attempts. Please wait ${lockStatus.remainingTime} seconds before trying again.`,
+          remainingTime: lockStatus.remainingTime,
+          code: "TOTP_RATE_LIMITED",
+        });
+      }
+
+      loginRateLimiter.recordFailedTOTPAttempt(userRecord.id);
+
+      if (!userRecord.totpEnabled || !userRecord.totpSecret) {
+        return res
+          .status(400)
+          .json({ error: "TOTP not enabled for this user" });
+      }
+
+      const userDataKey = authManager.getUserDataKey(userRecord.id);
+      if (!userDataKey) {
+        return res.status(401).json({
+          error: "Session expired - please log in again",
+          code: "SESSION_EXPIRED",
+        });
+      }
+
+      const totpSecret = LazyFieldEncryption.safeGetFieldValue(
+        userRecord.totpSecret,
+        userDataKey,
+        userRecord.id,
+        "totp_secret",
+      );
+
+      if (!totpSecret) {
+        await createCurrentUserRepository().update(userRecord.id, {
+          totpEnabled: false,
+          totpSecret: null,
+          totpBackupCodes: null,
+        });
+
+        return res.status(400).json({
+          error:
+            "TOTP has been disabled due to password reset. Please set up TOTP again.",
+        });
+      }
+
+      const verified = speakeasy.totp.verify({
+        secret: totpSecret,
+        encoding: "base32",
+        token: totp_code,
+        window: 2,
+      });
+
+      if (!verified) {
+        let backupCodes = [];
+        try {
+          backupCodes = userRecord.totpBackupCodes
+            ? JSON.parse(userRecord.totpBackupCodes)
+            : [];
+        } catch {
+          backupCodes = [];
+        }
+
+        if (!Array.isArray(backupCodes)) {
+          backupCodes = [];
+        }
+
+        const backupIndex = backupCodes.indexOf(totp_code);
+
+        if (backupIndex === -1) {
+          authLogger.warn("TOTP verification failed - invalid code", {
+            operation: "totp_verify_failed",
+            userId: userRecord.id,
+            remainingAttempts: loginRateLimiter.getRemainingTOTPAttempts(
+              userRecord.id,
+            ),
+          });
+          return res.status(401).json({
+            error: "Invalid TOTP code",
+            remainingAttempts: loginRateLimiter.getRemainingTOTPAttempts(
+              userRecord.id,
+            ),
+          });
+        }
+
+        backupCodes.splice(backupIndex, 1);
+        await createCurrentUserRepository().update(userRecord.id, {
+          totpBackupCodes: JSON.stringify(backupCodes),
+        });
+      }
+
+      loginRateLimiter.resetTOTPAttempts(userRecord.id);
+
+      const deviceInfo = parseUserAgent(req);
+
+      if (rememberMe) {
+        const deviceFingerprint = generateDeviceFingerprint(deviceInfo);
+        await authManager.addTrustedDevice(
+          userRecord.id,
+          deviceFingerprint,
+          deviceInfo.type,
+          deviceInfo.deviceInfo,
+        );
+        authLogger.info("Device automatically trusted via Remember Me", {
+          operation: "totp_auto_trust",
+          userId: userRecord.id,
+          deviceType: deviceInfo.type,
+        });
+      }
+
+      const token = await authManager.generateJWTToken(userRecord.id, {
+        rememberMe: !!rememberMe,
+        deviceType: deviceInfo.type,
+        deviceInfo: deviceInfo.deviceInfo,
+        mfaVerifiedAt: Math.floor(Date.now() / 1000),
+      });
+
+      authLogger.success("TOTP verification successful", {
+        operation: "totp_verify_success",
+        userId: userRecord.id,
+        deviceType: deviceInfo.type,
+        deviceInfo: deviceInfo.deviceInfo,
+      });
+
+      const response: Record<string, unknown> = {
+        success: true,
+        is_admin: !!userRecord.isAdmin,
+        username: userRecord.username,
+        userId: userRecord.id,
+        is_oidc: !!userRecord.isOidc,
+        totp_enabled: !!userRecord.totpEnabled,
+        ...(isNativeAppRequest(req) ? { token } : {}),
+      };
+
+      const timeoutValue = await createCurrentSettingsRepository().get(
+        "session_timeout_hours",
+      );
+      const timeoutHours = timeoutValue ? parseInt(timeoutValue, 10) || 24 : 24;
+      const maxAge = rememberMe
+        ? 30 * 24 * 60 * 60 * 1000
+        : timeoutHours * 60 * 60 * 1000;
+
+      return res
+        .cookie("jwt", token, authManager.getSecureCookieOptions(req, maxAge))
+        .json(response);
+    } catch (err) {
+      authLogger.error("TOTP verification failed", err);
+      return res.status(500).json({ error: "TOTP verification failed" });
+    }
+  });
+}

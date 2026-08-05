@@ -1,0 +1,1148 @@
+name: Build and Push Electron App
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Platform to build for"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
+          - macos
+      artifact_destination:
+        description: "What to do with the built app"
+        required: true
+        default: "file"
+        type: choice
+        options:
+          - none
+          - file
+          - release
+          - submit
+      source_ref:
+        description: "Git ref/SHA to build (defaults to the workflow ref)"
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      build_type:
+        description: "Platform to build for (all, windows, linux, macos)"
+        required: true
+        type: string
+      artifact_destination:
+        description: "What to do with the built app (none, file, release, submit)"
+        required: true
+        type: string
+      release_tag:
+        description: "Explicit release tag to upload assets to (defaults to latest release when empty)"
+        required: false
+        type: string
+        default: ""
+      version_override:
+        description: "Version string to stamp into built artifacts instead of package.json's version"
+        required: false
+        type: string
+        default: ""
+      source_ref:
+        description: "Git ref/SHA to build"
+        required: false
+        type: string
+        default: ""
+    outputs:
+      macos_universal_dmg_sha256:
+        description: "SHA256 of the universal macOS DMG (for Homebrew cask)"
+        value: ${{ jobs.build-macos.outputs.dmg_sha256 }}
+
+jobs:
+  build-windows:
+    runs-on: blacksmith-4vcpu-windows-2025
+    if: (inputs.build_type == 'all' || inputs.build_type == 'windows' || inputs.build_type == '') && inputs.artifact_destination != 'submit'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get version
+        id: package-version
+        run: |
+          $VERSION = "${{ inputs.version_override }}"
+          if ([string]::IsNullOrEmpty($VERSION)) {
+            $VERSION = (Get-Content package.json | ConvertFrom-Json).version
+          }
+          echo "version=$VERSION" >> $env:GITHUB_OUTPUT
+
+      - name: Build Windows (All Architectures)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build && npx electron-builder --win --x64 --ia32
+
+      - name: Upload Windows x64 NSIS Installer
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_windows_x64_nsis.exe') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_windows_x64_nsis
+          path: release/termix_windows_x64_nsis.exe
+          retention-days: 30
+
+      - name: Upload Windows ia32 NSIS Installer
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_windows_ia32_nsis.exe') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_windows_ia32_nsis
+          path: release/termix_windows_ia32_nsis.exe
+          retention-days: 30
+
+      - name: Upload Windows x64 MSI Installer
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_windows_x64_msi.msi') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_windows_x64_msi
+          path: release/termix_windows_x64_msi.msi
+          retention-days: 30
+
+      - name: Upload Windows ia32 MSI Installer
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_windows_ia32_msi.msi') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_windows_ia32_msi
+          path: release/termix_windows_ia32_msi.msi
+          retention-days: 30
+
+      - name: Create Windows x64 Portable zip
+        if: hashFiles('release/win-unpacked/*') != ''
+        run: |
+          Compress-Archive -Path "release\win-unpacked\*" -DestinationPath "termix_windows_x64_portable.zip"
+
+      - name: Create Windows ia32 Portable zip
+        if: hashFiles('release/win-ia32-unpacked/*') != ''
+        run: |
+          Compress-Archive -Path "release\win-ia32-unpacked\*" -DestinationPath "termix_windows_ia32_portable.zip"
+
+      - name: Upload Windows x64 Portable
+        uses: actions/upload-artifact@v7
+        if: hashFiles('termix_windows_x64_portable.zip') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_windows_x64_portable
+          path: termix_windows_x64_portable.zip
+          retention-days: 30
+
+      - name: Upload Windows ia32 Portable
+        uses: actions/upload-artifact@v7
+        if: hashFiles('termix_windows_ia32_portable.zip') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_windows_ia32_portable
+          path: termix_windows_ia32_portable.zip
+          retention-days: 30
+
+  build-linux:
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    if: (inputs.build_type == 'all' || inputs.build_type == 'linux' || inputs.build_type == '') && inputs.artifact_destination != 'submit'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 flatpak flatpak-builder imagemagick
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --force @rollup/rollup-linux-x64-gnu
+          npm install --force @rollup/rollup-linux-arm64-gnu
+          npm install --force @rollup/rollup-linux-arm-gnueabihf
+
+      - name: Build Linux x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEBUG: electron-builder
+        run: npm run build && npx electron-builder --linux --x64
+
+      - name: Build Linux arm64 and armv7l
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --arm64 --armv7l
+
+      - name: Rename Linux artifacts for consistency
+        run: |
+          cd release
+
+          if [ -f "termix_linux_amd64_deb.deb" ]; then
+            mv "termix_linux_amd64_deb.deb" "termix_linux_x64_deb.deb"
+          fi
+
+          if [ -f "termix_linux_x86_64_appimage.AppImage" ]; then
+            mv "termix_linux_x86_64_appimage.AppImage" "termix_linux_x64_appimage.AppImage"
+          fi
+
+          cd ..
+
+      - name: Upload Linux x64 AppImage
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_x64_appimage.AppImage') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_x64_appimage
+          path: release/termix_linux_x64_appimage.AppImage
+          retention-days: 30
+
+      - name: Upload Linux arm64 AppImage
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_arm64_appimage.AppImage') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_arm64_appimage
+          path: release/termix_linux_arm64_appimage.AppImage
+          retention-days: 30
+
+      - name: Upload Linux armv7l AppImage
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_armv7l_appimage.AppImage') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_armv7l_appimage
+          path: release/termix_linux_armv7l_appimage.AppImage
+          retention-days: 30
+
+      - name: Upload Linux x64 DEB
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_x64_deb.deb') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_x64_deb
+          path: release/termix_linux_x64_deb.deb
+          retention-days: 30
+
+      - name: Upload Linux arm64 DEB
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_arm64_deb.deb') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_arm64_deb
+          path: release/termix_linux_arm64_deb.deb
+          retention-days: 30
+
+      - name: Upload Linux armv7l DEB
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_armv7l_deb.deb') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_armv7l_deb
+          path: release/termix_linux_armv7l_deb.deb
+          retention-days: 30
+
+      - name: Upload Linux x64 tar.gz
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_x64_portable.tar.gz') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_x64_portable
+          path: release/termix_linux_x64_portable.tar.gz
+          retention-days: 30
+
+      - name: Upload Linux arm64 tar.gz
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_arm64_portable.tar.gz') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_arm64_portable
+          path: release/termix_linux_arm64_portable.tar.gz
+          retention-days: 30
+
+      - name: Upload Linux armv7l tar.gz
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_armv7l_portable.tar.gz') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_armv7l_portable
+          path: release/termix_linux_armv7l_portable.tar.gz
+          retention-days: 30
+
+      - name: Add Flathub repository
+        run: |
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install Flatpak runtime and SDK
+        run: |
+          sudo flatpak install -y flathub org.freedesktop.Platform//24.08
+          sudo flatpak install -y flathub org.freedesktop.Sdk//24.08
+          sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//24.08
+
+      - name: Get version for Flatpak
+        id: flatpak-version
+        run: |
+          VERSION="${{ inputs.version_override }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          RELEASE_DATE=$(date +%Y-%m-%d)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
+
+      - name: Prepare Flatpak files
+        run: |
+          VERSION="${{ steps.flatpak-version.outputs.version }}"
+          RELEASE_DATE="${{ steps.flatpak-version.outputs.release_date }}"
+
+          CHECKSUM_X64=$(sha256sum "release/termix_linux_x64_appimage.AppImage" | awk '{print $1}')
+          CHECKSUM_ARM64=$(sha256sum "release/termix_linux_arm64_appimage.AppImage" | awk '{print $1}')
+
+          mkdir -p flatpak-build
+          cp packaging/flatpak/com.karmaa.termix.yml flatpak-build/
+          cp packaging/flatpak/com.karmaa.termix.desktop flatpak-build/
+          cp packaging/flatpak/com.karmaa.termix.metainfo.xml flatpak-build/
+          cp public/icon.svg flatpak-build/com.karmaa.termix.svg
+          convert public/icon.png -resize 256x256 flatpak-build/icon-256.png
+          convert public/icon.png -resize 128x128 flatpak-build/icon-128.png
+
+          cd flatpak-build
+          sed -i "s|https://github.com/Termix-SSH/Termix/releases/download/release-VERSION_PLACEHOLDER-tag/termix_linux_x64_appimage.AppImage|file://$(realpath ../release/termix_linux_x64_appimage.AppImage)|g" com.karmaa.termix.yml
+          sed -i "s|https://github.com/Termix-SSH/Termix/releases/download/release-VERSION_PLACEHOLDER-tag/termix_linux_arm64_appimage.AppImage|file://$(realpath ../release/termix_linux_arm64_appimage.AppImage)|g" com.karmaa.termix.yml
+          sed -i "s/CHECKSUM_X64_PLACEHOLDER/$CHECKSUM_X64/g" com.karmaa.termix.yml
+          sed -i "s/CHECKSUM_ARM64_PLACEHOLDER/$CHECKSUM_ARM64/g" com.karmaa.termix.yml
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" com.karmaa.termix.metainfo.xml
+          sed -i "s/DATE_PLACEHOLDER/$RELEASE_DATE/g" com.karmaa.termix.metainfo.xml
+
+      - name: Build Flatpak bundle
+        run: |
+          cd flatpak-build
+          flatpak-builder --repo=repo --force-clean --disable-rofiles-fuse build-dir com.karmaa.termix.yml
+
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            FLATPAK_ARCH="x86_64"
+          elif [ "$ARCH" = "aarch64" ]; then
+            FLATPAK_ARCH="aarch64"
+          else
+            FLATPAK_ARCH="$ARCH"
+          fi
+
+          flatpak build-bundle repo ../release/termix_linux_flatpak.flatpak com.karmaa.termix --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Create flatpakref file
+        run: |
+          VERSION="${{ steps.flatpak-version.outputs.version }}"
+          cp packaging/flatpak/com.karmaa.termix.flatpakref release/
+          sed -i "s|VERSION_PLACEHOLDER|release-${VERSION}-tag|g" release/com.karmaa.termix.flatpakref
+
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_linux_flatpak.flatpak') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_flatpak
+          path: release/termix_linux_flatpak.flatpak
+          retention-days: 30
+
+      - name: Upload Flatpakref
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/com.karmaa.termix.flatpakref') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_linux_flatpakref
+          path: release/com.karmaa.termix.flatpakref
+          retention-days: 30
+
+  build-macos:
+    runs-on: blacksmith-6vcpu-macos-latest
+    if: (inputs.build_type == 'macos' || inputs.build_type == 'all') && inputs.artifact_destination != 'submit'
+    needs: []
+    permissions:
+      contents: write
+    outputs:
+      dmg_sha256: ${{ steps.dmg-checksum.outputs.sha256 }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --force @rollup/rollup-darwin-arm64
+          npm install dmg-license
+
+      - name: Check for Code Signing Certificates
+        id: check_certs
+        run: |
+          if [ -n "${{ secrets.MAC_BUILD_CERTIFICATE_BASE64 }}" ] && [ -n "${{ secrets.MAC_P12_PASSWORD }}" ]; then
+            echo "has_certs=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Import Code Signing Certificates
+        if: steps.check_certs.outputs.has_certs == 'true'
+        env:
+          MAC_BUILD_CERTIFICATE_BASE64: ${{ secrets.MAC_BUILD_CERTIFICATE_BASE64 }}
+          MAC_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.MAC_INSTALLER_CERTIFICATE_BASE64 }}
+          MAC_P12_PASSWORD: ${{ secrets.MAC_P12_PASSWORD }}
+          MAC_KEYCHAIN_PASSWORD: ${{ secrets.MAC_KEYCHAIN_PASSWORD }}
+        run: |
+          APP_CERT_PATH=$RUNNER_TEMP/app_certificate.p12
+          INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$MAC_BUILD_CERTIFICATE_BASE64" | base64 --decode -o $APP_CERT_PATH
+
+          if [ -n "$MAC_INSTALLER_CERTIFICATE_BASE64" ]; then
+            echo -n "$MAC_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $INSTALLER_CERT_PATH
+          fi
+
+          security create-keychain -p "$MAC_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$MAC_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $APP_CERT_PATH -P "$MAC_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+
+          if [ -f "$INSTALLER_CERT_PATH" ]; then
+            security import $INSTALLER_CERT_PATH -P "$MAC_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          fi
+
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
+      - name: Build macOS App Store Package
+        if: steps.check_certs.outputs.has_certs == 'true'
+        env:
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          BUILD_VERSION="${{ github.run_number }}"
+
+          npm run build && npx electron-builder --mac mas --universal --config.buildVersion="$BUILD_VERSION"
+
+      - name: Clean up MAS keychain before DMG build
+        if: steps.check_certs.outputs.has_certs == 'true'
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+      - name: Check for Developer ID Certificates
+        id: check_dev_id_certs
+        run: |
+          if [ -n "${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}" ] && [ -n "${{ secrets.DEVELOPER_ID_P12_PASSWORD }}" ]; then
+            echo "has_dev_id_certs=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Import Developer ID Certificates
+        if: steps.check_dev_id_certs.outputs.has_dev_id_certs == 'true'
+        env:
+          DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          MAC_KEYCHAIN_PASSWORD: ${{ secrets.MAC_KEYCHAIN_PASSWORD }}
+        run: |
+          DEV_CERT_PATH=$RUNNER_TEMP/dev_certificate.p12
+          DEV_INSTALLER_CERT_PATH=$RUNNER_TEMP/dev_installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/dev-signing.keychain-db
+
+          echo -n "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode -o $DEV_CERT_PATH
+
+          if [ -n "$DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64" ]; then
+            echo -n "$DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $DEV_INSTALLER_CERT_PATH
+          fi
+
+          security create-keychain -p "$MAC_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$MAC_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $DEV_CERT_PATH -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+
+          if [ -f "$DEV_INSTALLER_CERT_PATH" ]; then
+            security import $DEV_INSTALLER_CERT_PATH -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          fi
+
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
+      - name: Build macOS DMG
+        env:
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NODE_OPTIONS: --max-old-space-size=4096
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.check_certs.outputs.has_certs }}" != "true" ]; then
+            npm run build
+          fi
+          npx electron-builder --mac dmg --universal --x64 --arm64 --publish never
+
+      - name: Upload macOS MAS PKG
+        if: steps.check_certs.outputs.has_certs == 'true' && hashFiles('release/termix_macos_universal_mas.pkg') != '' && (inputs.artifact_destination == 'file' || inputs.artifact_destination == 'release' || inputs.artifact_destination == 'submit')
+        uses: actions/upload-artifact@v7
+        with:
+          name: termix_macos_universal_mas
+          path: release/termix_macos_universal_mas.pkg
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload macOS Universal DMG
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_macos_universal_dmg.dmg') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_macos_universal_dmg
+          path: release/termix_macos_universal_dmg.dmg
+          retention-days: 30
+
+      - name: Upload macOS x64 DMG
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_macos_x64_dmg.dmg') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_macos_x64_dmg
+          path: release/termix_macos_x64_dmg.dmg
+          retention-days: 30
+
+      - name: Upload macOS arm64 DMG
+        uses: actions/upload-artifact@v7
+        if: hashFiles('release/termix_macos_arm64_dmg.dmg') != '' && inputs.artifact_destination != 'none'
+        with:
+          name: termix_macos_arm64_dmg
+          path: release/termix_macos_arm64_dmg.dmg
+          retention-days: 30
+
+      - name: Get version for Homebrew
+        id: homebrew-version
+        run: |
+          VERSION="${{ inputs.version_override }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Compute universal DMG checksum
+        id: dmg-checksum
+        if: hashFiles('release/termix_macos_universal_dmg.dmg') != ''
+        run: |
+          CHECKSUM=$(shasum -a 256 "release/termix_macos_universal_dmg.dmg" | awk '{print $1}')
+          echo "sha256=$CHECKSUM" >> $GITHUB_OUTPUT
+
+      - name: Generate Homebrew Cask
+        if: hashFiles('release/termix_macos_universal_dmg.dmg') != '' && inputs.version_override == '' && (inputs.artifact_destination == 'file' || inputs.artifact_destination == 'release')
+        run: |
+          VERSION="${{ steps.homebrew-version.outputs.version }}"
+          DMG_PATH="release/termix_macos_universal_dmg.dmg"
+
+          CHECKSUM=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+
+          mkdir -p homebrew-generated
+          cp packaging/Casks/termix.rb homebrew-generated/termix.rb
+
+          sed -i '' "s/VERSION_PLACEHOLDER/$VERSION/g" homebrew-generated/termix.rb
+          sed -i '' "s/CHECKSUM_PLACEHOLDER/$CHECKSUM/g" homebrew-generated/termix.rb
+          sed -i '' "s|version \".*\"|version \"$VERSION\"|g" homebrew-generated/termix.rb
+          sed -i '' "s|sha256 \".*\"|sha256 \"$CHECKSUM\"|g" homebrew-generated/termix.rb
+          sed -i '' "s|release-[0-9.]*-tag|release-$VERSION-tag|g" homebrew-generated/termix.rb
+
+      - name: Upload Homebrew Cask as artifact
+        uses: actions/upload-artifact@v7
+        if: hashFiles('homebrew-generated/termix.rb') != '' && inputs.artifact_destination == 'file'
+        with:
+          name: termix_macos_homebrew_cask
+          path: homebrew-generated/termix.rb
+          retention-days: 30
+
+      - name: Upload Homebrew Cask to release
+        if: hashFiles('homebrew-generated/termix.rb') != '' && inputs.version_override == '' && inputs.artifact_destination == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.homebrew-version.outputs.version }}"
+          RELEASE_TAG="release-$VERSION-tag"
+
+          gh release list --repo ${{ github.repository }} --limit 100 | grep -q "$RELEASE_TAG" || {
+            echo "Release $RELEASE_TAG not found"
+            exit 1
+          }
+
+          gh release upload "$RELEASE_TAG" homebrew-generated/termix.rb --repo ${{ github.repository }} --clobber
+
+      - name: Clean up keychains
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          security delete-keychain $RUNNER_TEMP/dev-signing.keychain-db || true
+
+  submit-to-chocolatey:
+    runs-on: blacksmith-4vcpu-windows-2025
+    if: inputs.artifact_destination == 'submit' && (inputs.build_type == 'all' || inputs.build_type == 'windows' || inputs.build_type == '')
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          $VERSION = (Get-Content package.json | ConvertFrom-Json).version
+          echo "version=$VERSION" >> $env:GITHUB_OUTPUT
+
+      - name: Download and prepare MSI info from public release
+        id: msi-info
+        run: |
+          $VERSION = "${{ steps.package-version.outputs.version }}"
+          $MSI_NAME = "termix_windows_x64_msi.msi"
+          $DOWNLOAD_URL = "https://github.com/Termix-SSH/Termix/releases/download/release-$($VERSION)-tag/$($MSI_NAME)"
+
+          Write-Host "Downloading from $DOWNLOAD_URL"
+          New-Item -ItemType Directory -Force -Path "release_asset"
+          $DOWNLOAD_PATH = "release_asset\$MSI_NAME"
+
+          try {
+            Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $DOWNLOAD_PATH -UseBasicParsing
+          } catch {
+            Write-Error "Failed to download MSI from $DOWNLOAD_URL. Please ensure the release and asset exist."
+            exit 1
+          }
+
+          $CHECKSUM = (Get-FileHash -Path $DOWNLOAD_PATH -Algorithm SHA256).Hash
+          echo "msi_name=$MSI_NAME" >> $env:GITHUB_OUTPUT
+          echo "checksum=$CHECKSUM" >> $env:GITHUB_OUTPUT
+
+      - name: Prepare Chocolatey package
+        run: |
+          $VERSION = "${{ steps.package-version.outputs.version }}"
+          $CHECKSUM = "${{ steps.msi-info.outputs.checksum }}"
+          $MSI_NAME = "${{ steps.msi-info.outputs.msi_name }}"
+
+          $DOWNLOAD_URL = "https://github.com/Termix-SSH/Termix/releases/download/release-$VERSION-tag/$MSI_NAME"
+
+          New-Item -ItemType Directory -Force -Path "choco-build"
+          Copy-Item -Path "packaging\chocolatey\*" -Destination "choco-build" -Recurse -Force
+
+          $installScript = Get-Content "choco-build\tools\chocolateyinstall.ps1" -Raw -Encoding UTF8
+          $installScript = $installScript -replace 'DOWNLOAD_URL_PLACEHOLDER', $DOWNLOAD_URL
+          $installScript = $installScript -replace 'CHECKSUM_PLACEHOLDER', $CHECKSUM
+          [System.IO.File]::WriteAllText("$PWD\choco-build\tools\chocolateyinstall.ps1", $installScript, [System.Text.UTF8Encoding]::new($false))
+
+          $nuspec = Get-Content "choco-build\termix-ssh.nuspec" -Raw -Encoding UTF8
+          $nuspec = $nuspec -replace 'VERSION_PLACEHOLDER', $VERSION
+          [System.IO.File]::WriteAllText("$PWD\choco-build\termix-ssh.nuspec", $nuspec, [System.Text.UTF8Encoding]::new($false))
+
+      - name: Install Chocolatey
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+      - name: Pack Chocolatey package
+        run: |
+          cd choco-build
+          choco pack termix-ssh.nuspec
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Chocolatey push failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Check for Chocolatey API Key
+        id: check_choco_key
+        run: |
+          if ("${{ secrets.CHOCOLATEY_API_KEY }}" -ne "") {
+            echo "has_key=true" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Push to Chocolatey
+        if: steps.check_choco_key.outputs.has_key == 'true'
+        run: |
+          $VERSION = "${{ steps.package-version.outputs.version }}"
+          cd choco-build
+          choco apikey --key "${{ secrets.CHOCOLATEY_API_KEY }}" --source https://push.chocolatey.org/
+
+          try {
+            choco push "termix-ssh.$VERSION.nupkg" --source https://push.chocolatey.org/
+            if ($LASTEXITCODE -eq 0) {
+            } else {
+              throw "Chocolatey push failed with exit code $LASTEXITCODE"
+            }
+          } catch {
+          }
+
+      - name: Upload Chocolatey package as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: chocolatey-package
+          path: choco-build/*.nupkg
+          retention-days: 30
+
+  submit-to-flatpak:
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    if: inputs.artifact_destination == 'submit' && (inputs.build_type == 'all' || inputs.build_type == 'linux' || inputs.build_type == '')
+    needs: []
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          RELEASE_DATE=$(date +%Y-%m-%d)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
+
+      - name: Download and prepare AppImage info from public release
+        id: appimage-info
+        run: |
+          VERSION="${{ steps.package-version.outputs.version }}"
+          mkdir -p release_assets
+
+          APPIMAGE_X64_NAME="termix_linux_x64_appimage.AppImage"
+          URL_X64="https://github.com/Termix-SSH/Termix/releases/download/release-$VERSION-tag/$APPIMAGE_X64_NAME"
+          PATH_X64="release_assets/$APPIMAGE_X64_NAME"
+          echo "Downloading x64 AppImage from $URL_X64"
+          curl -L -o "$PATH_X64" "$URL_X64"
+          chmod +x "$PATH_X64"
+          CHECKSUM_X64=$(sha256sum "$PATH_X64" | awk '{print $1}')
+
+          APPIMAGE_ARM64_NAME="termix_linux_arm64_appimage.AppImage"
+          URL_ARM64="https://github.com/Termix-SSH/Termix/releases/download/release-$VERSION-tag/$APPIMAGE_ARM64_NAME"
+          PATH_ARM64="release_assets/$APPIMAGE_ARM64_NAME"
+          echo "Downloading arm64 AppImage from $URL_ARM64"
+          curl -L -o "$PATH_ARM64" "$URL_ARM64"
+          chmod +x "$PATH_ARM64"
+          CHECKSUM_ARM64=$(sha256sum "$PATH_ARM64" | awk '{print $1}')
+
+          echo "appimage_x64_name=$APPIMAGE_X64_NAME" >> $GITHUB_OUTPUT
+          echo "checksum_x64=$CHECKSUM_X64" >> $GITHUB_OUTPUT
+          echo "appimage_arm64_name=$APPIMAGE_ARM64_NAME" >> $GITHUB_OUTPUT
+          echo "checksum_arm64=$CHECKSUM_ARM64" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+
+      - name: Prepare Flatpak submission files
+        run: |
+          VERSION="${{ steps.package-version.outputs.version }}"
+          CHECKSUM_X64="${{ steps.appimage-info.outputs.checksum_x64 }}"
+          CHECKSUM_ARM64="${{ steps.appimage-info.outputs.checksum_arm64 }}"
+          RELEASE_DATE="${{ steps.package-version.outputs.release_date }}"
+
+          mkdir -p flatpak-submission
+
+          cp packaging/flatpak/com.karmaa.termix.yml flatpak-submission/
+          cp packaging/flatpak/com.karmaa.termix.desktop flatpak-submission/
+          cp packaging/flatpak/com.karmaa.termix.metainfo.xml flatpak-submission/
+          cp packaging/flatpak/flathub.json flatpak-submission/
+
+          cp public/icon.svg flatpak-submission/com.karmaa.termix.svg
+          convert public/icon.png -resize 256x256 flatpak-submission/icon-256.png
+          convert public/icon.png -resize 128x128 flatpak-submission/icon-128.png
+
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" flatpak-submission/com.karmaa.termix.yml
+          sed -i "s/CHECKSUM_X64_PLACEHOLDER/$CHECKSUM_X64/g" flatpak-submission/com.karmaa.termix.yml
+          sed -i "s/CHECKSUM_ARM64_PLACEHOLDER/$CHECKSUM_ARM64/g" flatpak-submission/com.karmaa.termix.yml
+
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" flatpak-submission/com.karmaa.termix.metainfo.xml
+          sed -i "s/DATE_PLACEHOLDER/$RELEASE_DATE/g" flatpak-submission/com.karmaa.termix.metainfo.xml
+
+      - name: Upload Flatpak submission as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-submission
+          path: flatpak-submission/*
+          retention-days: 30
+
+      - name: Check for Flathub token
+        id: check_flathub_token
+        run: |
+          if [ -n "${{ secrets.FLATHUB_TOKEN }}" ]; then
+            echo "has_token=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Open PR on Flathub repo
+        if: steps.check_flathub_token.outputs.has_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.FLATHUB_TOKEN }}
+          VERSION: ${{ steps.package-version.outputs.version }}
+        run: |
+          FLATHUB_REPO="flathub/com.karmaa.termix"
+          BRANCH="release-$VERSION"
+
+          git config --global user.name "LukeGus"
+          git config --global user.email "bugattiguy527@gmail.com"
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${FLATHUB_REPO}.git" flathub-repo
+          cd flathub-repo
+
+          git checkout -b "$BRANCH"
+
+          cp ../flatpak-submission/com.karmaa.termix.yml ./
+          cp ../flatpak-submission/com.karmaa.termix.desktop ./
+          cp ../flatpak-submission/com.karmaa.termix.metainfo.xml ./
+          cp ../flatpak-submission/flathub.json ./
+          cp ../flatpak-submission/com.karmaa.termix.svg ./
+          cp ../flatpak-submission/icon-256.png ./
+          cp ../flatpak-submission/icon-128.png ./
+
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to submit for $VERSION; Flathub repo already up to date."
+            exit 0
+          fi
+
+          git add -A
+          git commit -m "Update to $VERSION"
+          git push origin "$BRANCH"
+
+          EXISTING_PR=$(gh pr list --repo "$FLATHUB_REPO" --head "$BRANCH" --state open --json number -q '.[0].number' || true)
+          if [ -z "$EXISTING_PR" ]; then
+            gh pr create --repo "$FLATHUB_REPO" \
+              --base master \
+              --head "$BRANCH" \
+              --title "Update to $VERSION" \
+              --body "Automated release update to version $VERSION."
+          else
+            echo "PR #$EXISTING_PR already open for $BRANCH."
+          fi
+
+  submit-to-homebrew:
+    runs-on: blacksmith-6vcpu-macos-latest
+    if: inputs.artifact_destination == 'submit' && (inputs.build_type == 'all' || inputs.build_type == 'macos')
+    needs: []
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download and prepare DMG info from public release
+        id: dmg-info
+        run: |
+          VERSION="${{ steps.package-version.outputs.version }}"
+          DMG_NAME="termix_macos_universal_dmg.dmg"
+          URL="https://github.com/Termix-SSH/Termix/releases/download/release-$VERSION-tag/$DMG_NAME"
+
+          mkdir -p release_asset
+          DOWNLOAD_PATH="release_asset/$DMG_NAME"
+          echo "Downloading DMG from $URL"
+
+          if command -v curl &> /dev/null; then
+            curl -L -o "$DOWNLOAD_PATH" "$URL"
+          elif command -v wget &> /dev/null; then
+            wget -O "$DOWNLOAD_PATH" "$URL"
+          else
+            echo "Neither curl nor wget is available, installing curl"
+            brew install curl
+            curl -L -o "$DOWNLOAD_PATH" "$URL"
+          fi
+
+          CHECKSUM=$(shasum -a 256 "$DOWNLOAD_PATH" | awk '{print $1}')
+
+          echo "dmg_name=$DMG_NAME" >> $GITHUB_OUTPUT
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+
+      - name: Prepare Homebrew submission files
+        run: |
+          VERSION="${{ steps.package-version.outputs.version }}"
+          CHECKSUM="${{ steps.dmg-info.outputs.checksum }}"
+          DMG_NAME="${{ steps.dmg-info.outputs.dmg_name }}"
+
+          mkdir -p homebrew-submission/Casks/t
+
+          cp packaging/Casks/termix.rb homebrew-submission/Casks/t/termix.rb
+
+          sed -i '' "s/VERSION_PLACEHOLDER/$VERSION/g" homebrew-submission/Casks/t/termix.rb
+          sed -i '' "s/CHECKSUM_PLACEHOLDER/$CHECKSUM/g" homebrew-submission/Casks/t/termix.rb
+
+      - name: Verify Cask syntax
+        run: |
+          ruby -c homebrew-submission/Casks/t/termix.rb
+
+      - name: Upload Homebrew submission as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: homebrew-submission
+          path: homebrew-submission/*
+          retention-days: 30
+
+  upload-to-release:
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    if: inputs.artifact_destination == 'release'
+    needs: [build-windows, build-linux, build-macos]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Resolve release tag
+        id: get_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "RELEASE_TAG=$INPUT_TAG" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TAG=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName -q '.[0].tagName')" >> $GITHUB_ENV
+          fi
+
+      - name: Upload artifacts to latest release
+        run: |
+          cd artifacts
+          for dir in */; do
+            cd "$dir"
+            for file in *;
+            do
+              if [ -f "$file" ]; then
+                gh release upload "$RELEASE_TAG" "$file" --repo ${{ github.repository }} --clobber
+              fi
+            done
+            cd ..
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  submit-to-app-store:
+    runs-on: blacksmith-6vcpu-macos-latest
+    if: inputs.artifact_destination == 'submit' && (inputs.build_type == 'all' || inputs.build_type == 'macos')
+    needs: []
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --force @rollup/rollup-darwin-arm64
+          npm install dmg-license
+
+      - name: Check for Code Signing Certificates
+        id: check_certs
+        run: |
+          if [ -n "${{ secrets.MAC_BUILD_CERTIFICATE_BASE64 }}" ] && [ -n "${{ secrets.MAC_P12_PASSWORD }}" ]; then
+            echo "has_certs=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Import Code Signing Certificates
+        if: steps.check_certs.outputs.has_certs == 'true'
+        env:
+          MAC_BUILD_CERTIFICATE_BASE64: ${{ secrets.MAC_BUILD_CERTIFICATE_BASE64 }}
+          MAC_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.MAC_INSTALLER_CERTIFICATE_BASE64 }}
+          MAC_P12_PASSWORD: ${{ secrets.MAC_P12_PASSWORD }}
+          MAC_KEYCHAIN_PASSWORD: ${{ secrets.MAC_KEYCHAIN_PASSWORD }}
+        run: |
+          APP_CERT_PATH=$RUNNER_TEMP/app_certificate.p12
+          INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$MAC_BUILD_CERTIFICATE_BASE64" | base64 --decode -o $APP_CERT_PATH
+
+          if [ -n "$MAC_INSTALLER_CERTIFICATE_BASE64" ]; then
+            echo -n "$MAC_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $INSTALLER_CERT_PATH
+          fi
+
+          security create-keychain -p "$MAC_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$MAC_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $APP_CERT_PATH -P "$MAC_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+
+          if [ -f "$INSTALLER_CERT_PATH" ]; then
+            security import $INSTALLER_CERT_PATH -P "$MAC_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          fi
+
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
+      - name: Check for App Store Connect API credentials
+        id: check_asc_creds
+        run: |
+          if [ -n "${{ secrets.APPLE_KEY_ID }}" ] && [ -n "${{ secrets.APPLE_ISSUER_ID }}" ] && [ -n "${{ secrets.APPLE_KEY_CONTENT }}" ]; then
+            echo "has_credentials=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Ruby for Fastlane
+        if: steps.check_certs.outputs.has_certs == 'true' && steps.check_asc_creds.outputs.has_credentials == 'true'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+
+      - name: Install Fastlane
+        if: steps.check_certs.outputs.has_certs == 'true' && steps.check_asc_creds.outputs.has_credentials == 'true'
+        run: gem install fastlane -N
+
+      - name: Write App Store Connect API key
+        if: steps.check_certs.outputs.has_certs == 'true' && steps.check_asc_creds.outputs.has_credentials == 'true'
+        env:
+          APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
+          APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
+          APPLE_KEY_CONTENT: ${{ secrets.APPLE_KEY_CONTENT }}
+        run: |
+          # Write API key JSON that Fastlane expects; the PEM's newlines
+          # must be preserved as literal \n escapes, not stripped, or
+          # spaceship fails to parse the key (invalid curve name).
+          mkdir -p /tmp/asc_keys
+          KEY_P8_PATH="/tmp/asc_keys/AuthKey_${APPLE_KEY_ID}.p8"
+          API_KEY_JSON="/tmp/asc_keys/api_key.json"
+
+          echo "$APPLE_KEY_CONTENT" | base64 --decode > "$KEY_P8_PATH"
+
+          KEY_ID="$APPLE_KEY_ID" ISSUER_ID="$APPLE_ISSUER_ID" KEY_P8_PATH="$KEY_P8_PATH" \
+            node -e '
+              const fs = require("fs");
+              const key = fs.readFileSync(process.env.KEY_P8_PATH, "utf8");
+              process.stdout.write(JSON.stringify({
+                key_id: process.env.KEY_ID,
+                issuer_id: process.env.ISSUER_ID,
+                key,
+                in_house: false,
+              }, null, 2) + "\n");
+            ' > "$API_KEY_JSON"
+
+      - name: Resolve next build number from App Store Connect
+        id: build_number
+        if: steps.check_certs.outputs.has_certs == 'true' && steps.check_asc_creds.outputs.has_credentials == 'true'
+        run: |
+          APP_VERSION=$(node -p "require('./package.json').version")
+          OUT_FILE="$RUNNER_TEMP/latest_build_number.txt"
+          LANE_DIR="$RUNNER_TEMP/asc_lane/fastlane"
+          mkdir -p "$LANE_DIR"
+
+          cat > "$LANE_DIR/Fastfile" <<EOF
+          default_platform(:mac)
+
+          lane :fetch_build_number do
+            live_number = app_store_build_number(
+              live: true,
+              platform: "osx",
+              api_key_path: "/tmp/asc_keys/api_key.json",
+              app_identifier: "com.karmaa.termix",
+              initial_build_number: 0,
+            )
+            pending_number = app_store_build_number(
+              live: false,
+              platform: "osx",
+              api_key_path: "/tmp/asc_keys/api_key.json",
+              app_identifier: "com.karmaa.termix",
+              initial_build_number: 0,
+            )
+            number = [live_number, pending_number].max
+            File.write("$OUT_FILE", number.to_s)
+          end
+          EOF
+
+          (cd "$RUNNER_TEMP/asc_lane" && fastlane fetch_build_number) 2>&1 || true
+
+          LATEST=""
+          if [ -f "$OUT_FILE" ]; then
+            LATEST=$(cat "$OUT_FILE" | tr -d '[:space:]')
+          fi
+
+          if ! [[ "$LATEST" =~ ^[0-9]+$ ]]; then
+            echo "Could not resolve latest build number from App Store Connect; falling back to run number."
+            LATEST="${{ github.run_number }}"
+          fi
+          echo "build_version=$((LATEST + 1))" >> "$GITHUB_OUTPUT"
+
+      - name: Build macOS App Store Package
+        if: steps.check_certs.outputs.has_certs == 'true'
+        env:
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          BUILD_VERSION="${{ steps.build_number.outputs.build_version || github.run_number }}"
+          npm run build && npx electron-builder --mac mas --universal --config.buildVersion="$BUILD_VERSION"
+
+      - name: Upload and submit to Mac App Store
+        if: steps.check_certs.outputs.has_certs == 'true' && steps.check_asc_creds.outputs.has_credentials == 'true'
+        run: |
+          PKG_FILE=$(find release -name "termix_macos_universal_mas.pkg" -type f | head -n 1)
+          if [ -z "$PKG_FILE" ]; then
+            echo "PKG file not found in release/; aborting."
+            exit 1
+          fi
+
+          VERSION=$(node -p "require('./package.json').version")
+          API_KEY_JSON="/tmp/asc_keys/api_key.json"
+
+          fastlane deliver \
+            --pkg "$PKG_FILE" \
+            --api_key_path "$API_KEY_JSON" \
+            --app_version "$VERSION" \
+            --skip_metadata true \
+            --skip_screenshots true \
+            --submit_for_review true \
+            --automatic_release true \
+            --precheck_include_in_app_purchases false \
+            --submission_information "{\"export_compliance_uses_encryption\": false}" \
+            --force true
+
+      - name: Clean up keychains
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          rm -rf /tmp/asc_keys

@@ -1,0 +1,55 @@
+services:
+  cloudssh:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: "${CLOUDSSH_IMAGE:-cloudssh-termix:2.6.0-cloudssh.29}"
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - "${CLOUDSSH_BIND_ADDRESS:-127.0.0.1}:${CLOUDSSH_HTTP_PORT:-8080}:8080"
+    volumes:
+      - cloudssh-data:/app/data
+      - cloudssh-recordings:/app/data/session_recordings/guacamole
+    secrets:
+      - cloudssh_master_key
+    environment:
+      PORT: "8080"
+      AGENT_API_PORT: "30013"
+      AGENT_API_HOST: "127.0.0.1"
+      CLOUDSSH_MASTER_KEY_FILE: "/run/secrets/cloudssh_master_key"
+      CLOUDSSH_TRUSTED_PROXY_CIDR: "${CLOUDSSH_TRUSTED_PROXY_CIDR:-}"
+      CLOUDSSH_NETWORK_INFO_ENABLED: "${CLOUDSSH_NETWORK_INFO_ENABLED:-true}"
+      CLOUDSSH_NETWORK_INFO_ENDPOINT: "${CLOUDSSH_NETWORK_INFO_ENDPOINT:-https://ipwho.is/{ip}}"
+      ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-false}"
+      GUACD_HOST: "guacd"
+      GUACD_RECORDING_PATH: "/termix-data/session_recordings/guacamole"
+      GUACD_RECORDING_BACKEND_PATH: "/app/data/session_recordings/guacamole"
+    depends_on:
+      - guacd
+    networks:
+      - cloudssh-net
+
+  guacd:
+    # guacd 会处理远程桌面凭据和录像，生产环境固定到官方 1.6.0
+    # 多架构镜像摘要，避免同名标签被替换后静默拉取不同内容。
+    image: guacamole/guacd:1.6.0@sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f
+    restart: unless-stopped
+    stop_grace_period: 60s
+    volumes:
+      - cloudssh-recordings:/termix-data/session_recordings/guacamole
+    networks:
+      - cloudssh-net
+
+secrets:
+  cloudssh_master_key:
+    file: ../secrets/cloudssh_master_key
+
+volumes:
+  cloudssh-data:
+    name: "${CLOUDSSH_DATA_VOLUME:-cloudssh-data}"
+  cloudssh-recordings:
+    name: "${CLOUDSSH_RECORDINGS_VOLUME:-cloudssh-recordings}"
+
+networks:
+  cloudssh-net:

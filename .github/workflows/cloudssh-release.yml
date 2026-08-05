@@ -1,0 +1,459 @@
+name: CloudSSH 正式发版
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "必须与 package.json 一致，例如 2.6.0-cloudssh.18"
+        required: true
+        type: string
+
+concurrency:
+  group: cloudssh-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  CLOUDSSH_IMAGE: ghcr.io/${{ github.repository_owner }}/cloudssh
+
+jobs:
+  verify:
+    name: 发布前检查
+    if: ${{ github.repository == 'moeacgx/cloudssh' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      revision: ${{ steps.version.outputs.revision }}
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: 校验版本与发布状态
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "正式版本只能从 main 分支发布，当前为 $GITHUB_REF。"
+            exit 1
+          fi
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$REQUESTED_VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "输入版本 $REQUESTED_VERSION 与 package.json 的 $PACKAGE_VERSION 不一致。"
+            exit 1
+          fi
+          if [[ "${{ vars.CLOUDSSH_IMMUTABLE_RELEASES }}" != "true" ]]; then
+            echo "请先在仓库设置中启用不可变 Release，并把仓库变量 CLOUDSSH_IMMUTABLE_RELEASES 设为 true。" >&2
+            exit 1
+          fi
+          node scripts/cloudssh-release-manifest.mjs \
+            --version "$PACKAGE_VERSION" \
+            --image "$CLOUDSSH_IMAGE" \
+            --digest "sha256:$(printf '0%.0s' {1..64})" \
+            --revision "$GITHUB_SHA" \
+            --runtime-manifest-sha256 "$(printf '0%.0s' {1..64})" \
+            --min-entrypoint-protocol "2" \
+            --deployment-contract "cloudssh-self-update-v1" >/dev/null
+          TAG="release-$PACKAGE_VERSION-tag"
+          REMOTE_TAG="$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')"
+          RELEASES_FILE="$RUNNER_TEMP/cloudssh-releases.json"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_FILE"
+          node scripts/cloudssh-release-state.mjs \
+            --tag "$TAG" \
+            --revision "$GITHUB_SHA" \
+            --tag-sha "$REMOTE_TAG" \
+            --releases "$RELEASES_FILE" >> "$GITHUB_OUTPUT"
+          if [[ -n "$REMOTE_TAG" ]]; then
+            echo "发现同一提交上的残留标签，将安全续跑未完成的发布。"
+          fi
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "revision=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run type-check
+
+      - name: 代码检查
+        run: npm run lint
+
+      - name: 格式检查
+        run: npm run format:check
+
+      - name: 单元测试
+        run: npm test
+
+      - name: Skill 独立测试
+        run: npm run test:skill
+
+      - name: 构建验证
+        run: npm run build
+
+  publish:
+    name: 构建镜像并创建 Release
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: 检出已验证源码
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.verify.outputs.revision }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: 配置 QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: 配置 Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送 CloudSSH 暂存镜像
+        id: cloudssh
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.CLOUDSSH_IMAGE }}:staging-${{ needs.verify.outputs.revision }}
+          labels: |
+            org.opencontainers.image.title=CloudSSH
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.verify.outputs.revision }}
+          cache-from: type=gha,scope=cloudssh
+          cache-to: type=gha,mode=max,scope=cloudssh
+
+      - name: 从已验证镜像导出容器内运行包
+        id: runtime
+        shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          REVISION: ${{ needs.verify.outputs.revision }}
+          DIGEST: ${{ steps.cloudssh.outputs.digest }}
+        run: |
+          set -euo pipefail
+          SOURCE="$CLOUDSSH_IMAGE@$DIGEST"
+          asset_amd64=""
+          asset_arm64=""
+          runtime_compatibility=""
+          for pair in amd64:amd64 arm64:arm64; do
+            docker_arch="${pair%%:*}"
+            runtime_arch="${pair##*:}"
+            archive="cloudssh-runtime-$VERSION-linux-$runtime_arch.tar.gz"
+            staging="$RUNNER_TEMP/cloudssh-runtime-$runtime_arch"
+            root="$staging/cloudssh-app"
+            container=""
+            cleanup() {
+              if [[ -n "$container" ]]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+            }
+            trap cleanup EXIT
+
+            docker pull --platform "linux/$docker_arch" "$SOURCE"
+            docker run --rm --platform "linux/$docker_arch" \
+              --entrypoint /bin/sh \
+              -v "$PWD/docker/entrypoint.sh:/source/entrypoint.sh:ro" \
+              -v "$PWD/scripts/cloudssh-entrypoint-version-test.sh:/source/version-test.sh:ro" \
+              "$SOURCE" /source/version-test.sh /source/entrypoint.sh
+            detected_compatibility="$(docker run --rm --platform "linux/$docker_arch" \
+              --entrypoint node "$SOURCE" -e \
+              'const h=process.report.getReport().header; console.log([process.versions.node.split(".")[0],process.versions.modules,h.glibcVersionRuntime ? "glibc" : "unknown",h.glibcVersionRuntime || "unknown"].join(":"))')"
+            if [[ -z "$runtime_compatibility" ]]; then
+              runtime_compatibility="$detected_compatibility"
+            elif [[ "$runtime_compatibility" != "$detected_compatibility" ]]; then
+              echo "多架构镜像的 Node 运行时契约不一致" >&2
+              exit 1
+            fi
+            container="$(docker create --platform "linux/$docker_arch" "$SOURCE")"
+            mkdir -p "$root/html" "$root/dist/backend" "$root/node_modules" "$root/nginx" "$root/self-update"
+            docker cp "$container:/app/html/." "$root/html/"
+            docker cp "$container:/app/dist/backend/." "$root/dist/backend/"
+            docker cp "$container:/app/node_modules/." "$root/node_modules/"
+            docker cp "$container:/app/nginx/." "$root/nginx/"
+            docker cp "$container:/app/package.json" "$root/package.json"
+            docker cp "$container:/entrypoint.sh" "$root/self-update/entrypoint.sh"
+            cleanup
+            container=""
+            trap - EXIT
+
+            [[ "$(node -p "require('$root/package.json').version")" == "$VERSION" ]]
+            [[ -f "$root/html/index.html" ]]
+            [[ -f "$root/dist/backend/backend/starter.js" ]]
+            unexpected_links="$(find "$root" -type l ! -path '*/node_modules/.bin/*' -print)"
+            if [[ -n "$unexpected_links" ]]; then
+              echo "运行包包含未审核的符号链接：" >&2
+              printf '%s\n' "$unexpected_links" >&2
+              exit 1
+            fi
+            find "$root/node_modules/.bin" -type l -delete 2>/dev/null || true
+            tar --format=ustar --hard-dereference --sort=name \
+              --mtime='UTC 1970-01-01' --owner=0 --group=0 \
+              --numeric-owner -C "$root" -cf - \
+              html dist node_modules nginx self-update package.json | gzip -n -9 > "$archive"
+            docker run --rm --platform "linux/$docker_arch" \
+              --entrypoint node -v "$PWD:/release" "$SOURCE" \
+              --input-type=module -e \
+              'import { mkdtemp } from "node:fs/promises"; import { tmpdir } from "node:os"; import { join } from "node:path"; const { extractRuntimeArchive } = await import("/app/dist/backend/backend/update/runtime-archive.js"); const target = await mkdtemp(join(tmpdir(), "cloudssh-runtime-check-")); await extractRuntimeArchive(`/release/${process.argv[1]}`, target);' \
+              "$archive"
+            sha256="$(sha256sum "$archive" | awk '{print $1}')"
+            size="$(stat -c '%s' "$archive")"
+            printf '%s  %s\n' "$sha256" "$archive" > "$archive.sha256"
+            asset_value="$runtime_arch:$archive:$sha256:$size"
+            if [[ "$runtime_arch" == amd64 ]]; then
+              asset_amd64="$asset_value"
+            else
+              asset_arm64="$asset_value"
+            fi
+          done
+
+          IFS=: read -r node_major modules_abi libc libc_version <<< "$runtime_compatibility"
+
+          node scripts/cloudssh-runtime-manifest.mjs \
+            --version "$VERSION" \
+            --revision "$REVISION" \
+            --entrypoint-protocol "2" \
+            --node-major "$node_major" \
+            --modules-abi "$modules_abi" \
+            --libc "$libc" \
+            --libc-version "$libc_version" \
+            --asset-amd64 "$asset_amd64" \
+            --asset-arm64 "$asset_arm64" \
+            --output cloudssh-self-update.json
+          sha256sum cloudssh-self-update.json > cloudssh-self-update.json.sha256
+          echo "manifest_sha256=$(sha256sum cloudssh-self-update.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: 从固定摘要镜像导出 amd64 离线包
+        shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          REVISION: ${{ needs.verify.outputs.revision }}
+          DIGEST: ${{ steps.cloudssh.outputs.digest }}
+        run: |
+          set -euo pipefail
+          SOURCE="$CLOUDSSH_IMAGE@$DIGEST"
+          LOCAL_TAG="cloudssh-termix:$VERSION"
+          ARCHIVE="cloudssh-image-$VERSION-linux-amd64.tar.gz"
+          docker pull --platform linux/amd64 "$SOURCE"
+          docker tag "$SOURCE" "$LOCAL_TAG"
+          [[ "$(docker image inspect "$LOCAL_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
+          [[ "$(docker image inspect "$LOCAL_TAG" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" == "$VERSION" ]]
+          docker image inspect "$LOCAL_TAG" --format '{{.Id}}' > "$ARCHIVE.id"
+          docker save "$LOCAL_TAG" | gzip -n -9 > "$ARCHIVE"
+          sha256sum "$ARCHIVE" "$ARCHIVE.id" > "$ARCHIVE.sha256"
+
+      - name: 生成固定摘要发布清单
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          REVISION: ${{ needs.verify.outputs.revision }}
+          DIGEST: ${{ steps.cloudssh.outputs.digest }}
+          RUNTIME_MANIFEST_SHA256: ${{ steps.runtime.outputs.manifest_sha256 }}
+        run: |
+          node scripts/cloudssh-release-manifest.mjs \
+            --version "$VERSION" \
+            --image "$CLOUDSSH_IMAGE" \
+            --digest "$DIGEST" \
+            --revision "$REVISION" \
+            --runtime-manifest-sha256 "$RUNTIME_MANIFEST_SHA256" \
+            --min-entrypoint-protocol "2" \
+            --deployment-contract "cloudssh-self-update-v1" \
+            --output cloudssh-release.json
+          sha256sum cloudssh-release.json > cloudssh-release.json.sha256
+
+      - name: 创建或复用同提交的草稿 Release
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          REVISION: ${{ needs.verify.outputs.revision }}
+        run: |
+          set -euo pipefail
+          TAG="release-$VERSION-tag"
+          REMOTE_TAG=""
+          if ! REMOTE_TAG="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null)"; then
+            REMOTE_TAG=""
+          fi
+          RELEASES_FILE="$RUNNER_TEMP/cloudssh-releases.json"
+          STATE_FILE="$RUNNER_TEMP/cloudssh-release-state"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_FILE"
+          node scripts/cloudssh-release-state.mjs \
+            --tag "$TAG" \
+            --revision "$REVISION" \
+            --tag-sha "$REMOTE_TAG" \
+            --releases "$RELEASES_FILE" > "$STATE_FILE"
+          DRAFT_ID="$(sed -n 's/^draft_id=//p' "$STATE_FILE")"
+          if [[ -z "$DRAFT_ID" ]]; then
+            DRAFT_ID="$(gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" \
+              -f target_commitish="$REVISION" \
+              -f name="CloudSSH $VERSION" \
+              -F draft=true \
+              -F prerelease=false \
+              -F generate_release_notes=true \
+              --jq '.id')"
+          fi
+          echo "id=$DRAFT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: 幂等上传并校验 Release 附件
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="release-$VERSION-tag"
+          gh release upload "$TAG" \
+            cloudssh-release.json \
+            cloudssh-release.json.sha256 \
+            cloudssh-self-update.json \
+            cloudssh-self-update.json.sha256 \
+            cloudssh-runtime-$VERSION-linux-*.tar.gz \
+            cloudssh-runtime-$VERSION-linux-*.tar.gz.sha256 \
+            cloudssh-image-$VERSION-linux-amd64.tar.gz \
+            cloudssh-image-$VERSION-linux-amd64.tar.gz.id \
+            cloudssh-image-$VERSION-linux-amd64.tar.gz.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+          VERIFY_DIR="$RUNNER_TEMP/cloudssh-release-assets"
+          mkdir -p "$VERIFY_DIR"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'cloudssh-*.json*' \
+            --pattern 'cloudssh-runtime-*.tar.gz*' \
+            --pattern 'cloudssh-image-*.tar.gz*' \
+            --dir "$VERIFY_DIR"
+          cmp cloudssh-release.json "$VERIFY_DIR/cloudssh-release.json"
+          cmp cloudssh-release.json.sha256 "$VERIFY_DIR/cloudssh-release.json.sha256"
+          cmp cloudssh-self-update.json "$VERIFY_DIR/cloudssh-self-update.json"
+          cmp cloudssh-self-update.json.sha256 "$VERIFY_DIR/cloudssh-self-update.json.sha256"
+          (cd "$VERIFY_DIR" && \
+            sha256sum -c cloudssh-release.json.sha256 && \
+            sha256sum -c cloudssh-self-update.json.sha256 && \
+            for checksum in cloudssh-runtime-*.tar.gz.sha256; do sha256sum -c "$checksum"; done && \
+            sha256sum -c cloudssh-image-$VERSION-linux-amd64.tar.gz.sha256)
+
+      - name: 锁定不可变发布标签
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          REVISION: ${{ needs.verify.outputs.revision }}
+        run: |
+          set -euo pipefail
+          TAG="release-$VERSION-tag"
+          EXISTING=""
+          if ! EXISTING="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null)"; then
+            EXISTING=""
+          fi
+          if [[ -z "$EXISTING" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="$REVISION"
+          elif [[ "$EXISTING" != "$REVISION" ]]; then
+            echo "该版本标签已指向其他提交，拒绝覆盖。"
+            exit 1
+          fi
+
+      - name: 提升并校验固定版本镜像标签
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          CLOUDSSH_DIGEST: ${{ steps.cloudssh.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$CLOUDSSH_IMAGE:$VERSION" \
+            --tag "$CLOUDSSH_IMAGE:release-$VERSION" \
+            "$CLOUDSSH_IMAGE@$CLOUDSSH_DIGEST"
+          read_digest() {
+            docker buildx imagetools inspect "$1" | \
+              sed -n 's/^Digest:[[:space:]]*//p' | head -n 1
+          }
+          [[ "$(read_digest "$CLOUDSSH_IMAGE:$VERSION")" == "$CLOUDSSH_DIGEST" ]]
+          [[ "$(read_digest "$CLOUDSSH_IMAGE:release-$VERSION")" == "$CLOUDSSH_DIGEST" ]]
+
+      - name: 发布已锁定且附件完整的 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          DRAFT_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          set -euo pipefail
+          TAG="release-$VERSION-tag"
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/releases/$DRAFT_ID" \
+            -F draft=false \
+            -f make_latest=true >/dev/null
+          IS_DRAFT="$(gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft \
+            --jq '.isDraft')"
+          [[ "$IS_DRAFT" == "false" ]]
+          immutable="false"
+          for _ in {1..12}; do
+            immutable="$(gh api \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+              --jq '.immutable // false')"
+            [[ "$immutable" == "true" ]] && break
+            sleep 5
+          done
+          [[ "$immutable" == "true" ]] || {
+            echo "Release 发布后未进入不可变状态，拒绝继续更新浮动镜像标签。" >&2
+            exit 1
+          }
+          verified="false"
+          for _ in {1..12}; do
+            if gh release verify "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --format json >/dev/null 2>&1; then
+              verified="true"
+              break
+            fi
+            sleep 5
+          done
+          [[ "$verified" == "true" ]] || {
+            echo "GitHub 尚未生成有效的不可变 Release 证明。" >&2
+            exit 1
+          }
+
+      - name: Release 发布后更新浮动镜像标签
+        env:
+          CLOUDSSH_DIGEST: ${{ steps.cloudssh.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$CLOUDSSH_IMAGE:latest" \
+            "$CLOUDSSH_IMAGE@$CLOUDSSH_DIGEST"

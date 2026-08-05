@@ -1,0 +1,1384 @@
+import type { Dispatch, SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "@/components/button";
+import { Input } from "@/components/input";
+import { PasswordInput } from "@/components/password-input";
+import { SettingRow } from "@/components/section-card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/select";
+import {
+  Database,
+  Lock,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Server,
+  Settings,
+  Shield,
+  Trash2,
+} from "lucide-react";
+import { AccordionSection, AdminToggle } from "./AdminSettingsShared";
+import type { SSOProvider, SSOProviderType } from "@/types/index";
+import type { HostDefaults } from "@/api/settings-api";
+import type { AcmeSettings, AcmeChallengeType } from "@/api/acme-ssl-api";
+
+type GeneralSettingsSectionProps = {
+  open: boolean;
+  onToggle: () => void;
+  analyticsEnabled: boolean;
+  handleToggleAnalytics: () => void;
+  sessionSharingGloballyEnabled: boolean;
+  handleToggleSessionSharingGloballyEnabled: () => void;
+  allowRegistration: boolean;
+  handleToggleRegistration: () => void;
+  allowPasswordLogin: boolean;
+  handleTogglePasswordLogin: () => void;
+  oidcAutoProvision: boolean;
+  handleToggleOidcAutoProvision: () => void;
+  oidcSilentLoginDefault: boolean;
+  handleToggleOidcSilentLoginDefault: () => void;
+  allowPasswordReset: boolean;
+  handleTogglePasswordReset: () => void;
+  commandHistoryEnabled: boolean;
+  handleToggleCommandHistory: () => void;
+  sessionTimeout: string;
+  setSessionTimeout: Dispatch<SetStateAction<string>>;
+  handleSaveSessionTimeout: () => void;
+  terminalRetentionValue: string;
+  setTerminalRetentionValue: Dispatch<SetStateAction<string>>;
+  terminalRetentionUnit: "minutes" | "hours" | "days";
+  setTerminalRetentionUnit: Dispatch<
+    SetStateAction<"minutes" | "hours" | "days">
+  >;
+  handleSaveTerminalRetention: () => void;
+  statusInterval: string;
+  setStatusInterval: Dispatch<SetStateAction<string>>;
+  metricsInterval: string;
+  setMetricsInterval: Dispatch<SetStateAction<string>>;
+  metricsHistoryRetention: string;
+  setMetricsHistoryRetention: Dispatch<SetStateAction<string>>;
+  handleSaveMonitoring: () => void;
+  guacEnabled: boolean;
+  handleToggleGuacamole: () => void;
+  guacUrl: string;
+  setGuacUrl: Dispatch<SetStateAction<string>>;
+  handleSaveGuacamole: () => void;
+  logLevel: string;
+  handleSaveLogLevel: (level: string) => void;
+  tailscaleApiKey: string;
+  setTailscaleApiKey: Dispatch<SetStateAction<string>>;
+  handleSaveTailscaleApiKey: () => void;
+};
+
+export function AdminGeneralSettingsSection({
+  open,
+  onToggle,
+  analyticsEnabled,
+  handleToggleAnalytics,
+  sessionSharingGloballyEnabled,
+  handleToggleSessionSharingGloballyEnabled,
+  allowRegistration,
+  handleToggleRegistration,
+  allowPasswordLogin,
+  handleTogglePasswordLogin,
+  oidcAutoProvision,
+  handleToggleOidcAutoProvision,
+  oidcSilentLoginDefault,
+  handleToggleOidcSilentLoginDefault,
+  allowPasswordReset,
+  handleTogglePasswordReset,
+  commandHistoryEnabled,
+  handleToggleCommandHistory,
+  sessionTimeout,
+  setSessionTimeout,
+  handleSaveSessionTimeout,
+  terminalRetentionValue,
+  setTerminalRetentionValue,
+  terminalRetentionUnit,
+  setTerminalRetentionUnit,
+  handleSaveTerminalRetention,
+  statusInterval,
+  setStatusInterval,
+  metricsInterval,
+  setMetricsInterval,
+  metricsHistoryRetention,
+  setMetricsHistoryRetention,
+  handleSaveMonitoring,
+  guacEnabled,
+  handleToggleGuacamole,
+  guacUrl,
+  setGuacUrl,
+  handleSaveGuacamole,
+  logLevel,
+  handleSaveLogLevel,
+  tailscaleApiKey,
+  setTailscaleApiKey,
+  handleSaveTailscaleApiKey,
+}: GeneralSettingsSectionProps) {
+  const { t } = useTranslation();
+
+  return (
+    <AccordionSection
+      label={t("admin.sectionGeneral")}
+      icon={<Settings className="size-3.5" />}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="flex flex-col gap-0 pt-2">
+        <SettingRow
+          label={t("admin.analyticsEnabled")}
+          description={t("admin.analyticsEnabledDesc")}
+        >
+          <AdminToggle on={analyticsEnabled} onToggle={handleToggleAnalytics} />
+        </SettingRow>
+        <SettingRow
+          label={t("admin.sessionSharingGloballyEnabled")}
+          description={t("admin.sessionSharingGloballyEnabledDesc")}
+        >
+          <AdminToggle
+            on={sessionSharingGloballyEnabled}
+            onToggle={handleToggleSessionSharingGloballyEnabled}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("admin.allowRegistration")}
+          description={t("admin.allowRegistrationDesc")}
+        >
+          <AdminToggle
+            on={allowRegistration}
+            onToggle={handleToggleRegistration}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("admin.allowPasswordLogin")}
+          description={t("admin.allowPasswordLoginDesc")}
+        >
+          <AdminToggle
+            on={allowPasswordLogin}
+            onToggle={handleTogglePasswordLogin}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("admin.oidcAutoProvision")}
+          description={t("admin.oidcAutoProvisionDesc")}
+        >
+          <AdminToggle
+            on={oidcAutoProvision}
+            onToggle={handleToggleOidcAutoProvision}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("admin.oidcSilentLoginDefault")}
+          description={t("admin.oidcSilentLoginDefaultDesc")}
+        >
+          <AdminToggle
+            on={oidcSilentLoginDefault}
+            onToggle={handleToggleOidcSilentLoginDefault}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("admin.allowPasswordReset")}
+          description={t("admin.allowPasswordResetDesc")}
+        >
+          <AdminToggle
+            on={allowPasswordReset}
+            onToggle={handleTogglePasswordReset}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t("admin.commandHistoryEnabled")}
+          description={t("admin.commandHistoryEnabledDesc")}
+        >
+          <AdminToggle
+            on={commandHistoryEnabled}
+            onToggle={handleToggleCommandHistory}
+          />
+        </SettingRow>
+
+        <div className="flex flex-col gap-2 pt-3 mt-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("admin.loginSessionTimeout")}
+          </span>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              max={720}
+              value={sessionTimeout}
+              onChange={(e) => setSessionTimeout(e.target.value)}
+              className="w-20 text-sm"
+            />
+            <span className="text-xs text-muted-foreground">
+              {t("admin.hours")}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7"
+              onClick={handleSaveSessionTimeout}
+            >
+              {t("common.save")}
+            </Button>
+          </div>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.loginSessionTimeoutDesc")}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.sessionTimeoutRange")}
+          </span>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              {t("admin.sshDisconnectRetention")}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {t("admin.sshDisconnectRetentionDesc")}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              max={
+                terminalRetentionUnit === "days"
+                  ? 7
+                  : terminalRetentionUnit === "hours"
+                    ? 168
+                    : 10080
+              }
+              step={1}
+              value={terminalRetentionValue}
+              onChange={(event) =>
+                setTerminalRetentionValue(event.target.value)
+              }
+              className="w-20 text-sm"
+            />
+            <Select
+              value={terminalRetentionUnit}
+              onValueChange={(value) =>
+                setTerminalRetentionUnit(value as "minutes" | "hours" | "days")
+              }
+            >
+              <SelectTrigger className="h-7 w-24 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="minutes">{t("admin.minutes")}</SelectItem>
+                <SelectItem value="hours">{t("admin.hours")}</SelectItem>
+                <SelectItem value="days">{t("admin.days")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 border-accent-brand/40 text-xs text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
+              onClick={handleSaveTerminalRetention}
+            >
+              {t("common.save")}
+            </Button>
+          </div>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.sshDisconnectRetentionRange")}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-3 mt-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("admin.monitoringDefaults")}
+          </span>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+              {t("admin.statusCheck")}
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={statusInterval}
+                onChange={(e) => setStatusInterval(e.target.value)}
+                className="w-20 text-sm"
+              />
+              <span className="text-xs text-muted-foreground">
+                {t("admin.sec")}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+              {t("admin.metrics")}
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={metricsInterval}
+                onChange={(e) => setMetricsInterval(e.target.value)}
+                className="w-20 text-sm"
+              />
+              <span className="text-xs text-muted-foreground">
+                {t("admin.sec")}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7"
+                onClick={handleSaveMonitoring}
+              >
+                {t("common.save")}
+              </Button>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+              {t("admin.metricsHistoryRetention")}
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={90}
+                value={metricsHistoryRetention}
+                onChange={(e) => setMetricsHistoryRetention(e.target.value)}
+                className="w-20 text-sm"
+              />
+              <span className="text-xs text-muted-foreground">
+                {t("admin.days")}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7"
+                onClick={handleSaveMonitoring}
+              >
+                {t("common.save")}
+              </Button>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              {t("admin.metricsHistoryRetentionRange")}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-3 mt-2">
+          <SettingRow
+            label={t("admin.enableGuacamole")}
+            description={
+              <>
+                {t("admin.enableGuacamoleDesc")}{" "}
+                <a
+                  href="https://docs.termix.site/setup/remote-desktop"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent-brand hover:underline"
+                >
+                  {t("admin.enableGuacamoleDocsLink")}
+                </a>
+              </>
+            }
+          >
+            <AdminToggle on={guacEnabled} onToggle={handleToggleGuacamole} />
+          </SettingRow>
+          {guacEnabled && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                {t("admin.guacdUrl")}
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={guacUrl}
+                  onChange={(e) => setGuacUrl(e.target.value)}
+                  placeholder="guacd:4822"
+                  className="text-sm"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7 shrink-0"
+                  onClick={handleSaveGuacamole}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-3 mt-2">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              {t("admin.tailscaleApiKey")}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {t("admin.tailscaleApiKeyDescription")}{" "}
+              <a
+                href="https://docs.termix.site/features/networking/tailscale"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent-brand hover:underline"
+              >
+                {t("admin.tailscaleApiKeyDocsLink")}
+              </a>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              type="password"
+              value={tailscaleApiKey}
+              onChange={(e) => setTailscaleApiKey(e.target.value)}
+              placeholder="tskey-api-..."
+              className="text-sm"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7 shrink-0"
+              onClick={handleSaveTailscaleApiKey}
+            >
+              {t("common.save")}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-3 mt-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("admin.logLevel")}
+          </span>
+          <div className="flex gap-1.5 flex-wrap">
+            {["debug", "info", "warn", "error"].map((l) => (
+              <button
+                key={l}
+                onClick={() => handleSaveLogLevel(l)}
+                className={`px-2 py-1 text-[10px] font-semibold border capitalize transition-colors ${logLevel === l ? "border-accent-brand/40 bg-accent-brand/10 text-accent-brand" : "border-border text-muted-foreground hover:text-foreground"}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </AccordionSection>
+  );
+}
+
+type OidcSettingsSectionProps = {
+  open: boolean;
+  onToggle: () => void;
+  oidcClientId: string;
+  setOidcClientId: Dispatch<SetStateAction<string>>;
+  oidcClientSecret: string;
+  setOidcClientSecret: Dispatch<SetStateAction<string>>;
+  oidcAuthUrl: string;
+  setOidcAuthUrl: Dispatch<SetStateAction<string>>;
+  oidcIssuerUrl: string;
+  setOidcIssuerUrl: Dispatch<SetStateAction<string>>;
+  oidcTokenUrl: string;
+  setOidcTokenUrl: Dispatch<SetStateAction<string>>;
+  oidcUserIdentifier: string;
+  setOidcUserIdentifier: Dispatch<SetStateAction<string>>;
+  oidcDisplayName: string;
+  setOidcDisplayName: Dispatch<SetStateAction<string>>;
+  oidcScopes: string;
+  setOidcScopes: Dispatch<SetStateAction<string>>;
+  oidcUserinfoUrl: string;
+  setOidcUserinfoUrl: Dispatch<SetStateAction<string>>;
+  oidcAllowedUsers: string;
+  setOidcAllowedUsers: Dispatch<SetStateAction<string>>;
+  oidcAdminGroup: string;
+  setOidcAdminGroup: Dispatch<SetStateAction<string>>;
+  oidcGroupClaim: string;
+  setOidcGroupClaim: Dispatch<SetStateAction<string>>;
+  oidcSaving: boolean;
+  handleRemoveOidc: () => void;
+  handleSaveOidc: () => void;
+};
+
+export function AdminOidcSettingsSection({
+  open,
+  onToggle,
+  oidcClientId,
+  setOidcClientId,
+  oidcClientSecret,
+  setOidcClientSecret,
+  oidcAuthUrl,
+  setOidcAuthUrl,
+  oidcIssuerUrl,
+  setOidcIssuerUrl,
+  oidcTokenUrl,
+  setOidcTokenUrl,
+  oidcUserIdentifier,
+  setOidcUserIdentifier,
+  oidcDisplayName,
+  setOidcDisplayName,
+  oidcScopes,
+  setOidcScopes,
+  oidcUserinfoUrl,
+  setOidcUserinfoUrl,
+  oidcAllowedUsers,
+  setOidcAllowedUsers,
+  oidcAdminGroup,
+  setOidcAdminGroup,
+  oidcGroupClaim,
+  setOidcGroupClaim,
+  oidcSaving,
+  handleRemoveOidc,
+  handleSaveOidc,
+}: OidcSettingsSectionProps) {
+  const { t } = useTranslation();
+
+  return (
+    <AccordionSection
+      label={t("admin.sectionOidc")}
+      icon={<Shield className="size-3.5" />}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="flex flex-col gap-3 pt-3">
+        <span className="text-[10px] text-muted-foreground">
+          {t("admin.oidcDescription").split("*")[0]}
+          <span className="text-accent-brand">*</span>
+          {t("admin.oidcDescription").split("*")[1]}{" "}
+          <a
+            href="https://docs.termix.site/features/authentication/oidc"
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-brand hover:underline"
+          >
+            {t("admin.oidcDocsLink")}
+          </a>
+        </span>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcClientId")}{" "}
+            <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            value={oidcClientId}
+            onChange={(e) => setOidcClientId(e.target.value)}
+            placeholder="your-client-id"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcClientSecret")}{" "}
+            <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            type="password"
+            value={oidcClientSecret}
+            onChange={(e) => setOidcClientSecret(e.target.value)}
+            placeholder="your-client-secret"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcAuthUrl")}{" "}
+            <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            value={oidcAuthUrl}
+            onChange={(e) => setOidcAuthUrl(e.target.value)}
+            placeholder="https://provider/oauth2/auth"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcIssuerUrl")}{" "}
+            <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            value={oidcIssuerUrl}
+            onChange={(e) => setOidcIssuerUrl(e.target.value)}
+            placeholder="https://provider"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcTokenUrl")}{" "}
+            <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            value={oidcTokenUrl}
+            onChange={(e) => setOidcTokenUrl(e.target.value)}
+            placeholder="https://provider/oauth2/token"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcUserIdentifier")}{" "}
+            <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            value={oidcUserIdentifier}
+            onChange={(e) => setOidcUserIdentifier(e.target.value)}
+            placeholder="sub"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcDisplayName")}{" "}
+            <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            value={oidcDisplayName}
+            onChange={(e) => setOidcDisplayName(e.target.value)}
+            placeholder="name"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcScopes")} <span className="text-accent-brand">*</span>
+          </label>
+          <Input
+            value={oidcScopes}
+            onChange={(e) => setOidcScopes(e.target.value)}
+            placeholder="openid email profile"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcUserinfoUrl")}
+          </label>
+          <Input
+            value={oidcUserinfoUrl}
+            onChange={(e) => setOidcUserinfoUrl(e.target.value)}
+            placeholder="https://provider/oauth2/userinfo"
+            className="text-xs"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcAllowedUsers")}
+          </label>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.oidcAllowedUsersDesc")}
+          </span>
+          <textarea
+            value={oidcAllowedUsers}
+            onChange={(e) => setOidcAllowedUsers(e.target.value)}
+            placeholder={"user@example.com\nanother@example.com"}
+            rows={3}
+            className="w-full px-2 py-1.5 text-xs bg-background border border-border text-foreground placeholder:text-muted-foreground resize-none outline-none focus:ring-1 focus:ring-ring font-mono"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcAdminGroup")}
+          </label>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.oidcAdminGroupDesc")}
+          </span>
+          <input
+            value={oidcAdminGroup}
+            onChange={(e) => setOidcAdminGroup(e.target.value)}
+            placeholder="admin"
+            className="w-full px-2 py-1.5 text-xs bg-background border border-border text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring font-mono"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.oidcGroupClaim")}
+          </label>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.oidcGroupClaimDesc")}
+          </span>
+          <input
+            value={oidcGroupClaim}
+            onChange={(e) => setOidcGroupClaim(e.target.value)}
+            placeholder="groups"
+            className="w-full px-2 py-1.5 text-xs bg-background border border-border text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring font-mono"
+          />
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={handleRemoveOidc}
+          >
+            <Trash2 className="size-3" />
+            {t("admin.removeOidc")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
+            onClick={handleSaveOidc}
+            disabled={oidcSaving}
+          >
+            <RefreshCw className="size-3" />
+            {oidcSaving ? t("admin.saving") : t("common.save")}
+          </Button>
+        </div>
+      </div>
+    </AccordionSection>
+  );
+}
+
+type DatabaseSectionProps = {
+  open: boolean;
+  onToggle: () => void;
+  importFile: File | null;
+  setImportFile: Dispatch<SetStateAction<File | null>>;
+  exportLoading: boolean;
+  importLoading: boolean;
+  handleExportDatabase: () => void;
+  handleImportDatabase: () => void;
+};
+
+export function AdminDatabaseSection({
+  open,
+  onToggle,
+  importFile,
+  setImportFile,
+  exportLoading,
+  importLoading,
+  handleExportDatabase,
+  handleImportDatabase,
+}: DatabaseSectionProps) {
+  const { t } = useTranslation();
+
+  return (
+    <AccordionSection
+      label={t("admin.sectionDatabase")}
+      icon={<Database className="size-3.5" />}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="flex flex-col gap-3 pt-3">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium">
+            {t("admin.exportDatabase")}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.exportDatabaseDesc")}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand mt-1"
+            onClick={handleExportDatabase}
+            disabled={exportLoading}
+          >
+            {exportLoading ? t("admin.exporting") : t("admin.export")}
+          </Button>
+        </div>
+        <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+          <span className="text-xs font-medium">
+            {t("admin.importDatabase")}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {importFile
+              ? t("admin.importDatabaseSelected", { name: importFile.name })
+              : t("admin.importDatabaseDesc")}
+          </span>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="relative">
+              <input
+                type="file"
+                accept=".sqlite,.db"
+                onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="pointer-events-none text-xs"
+              >
+                {importFile ? t("admin.changeFile") : t("admin.selectFile")}
+              </Button>
+            </div>
+            {importFile && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
+                onClick={handleImportDatabase}
+                disabled={importLoading}
+              >
+                {importLoading ? t("admin.importing") : t("admin.import")}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </AccordionSection>
+  );
+}
+
+const SSO_TYPE_LABELS: Record<SSOProviderType, string> = {
+  oidc: "OIDC",
+  ldap: "LDAP",
+  github: "GitHub",
+  google: "Google",
+};
+
+type AdminSSOSectionProps = {
+  open: boolean;
+  onToggle: () => void;
+  providers: SSOProvider[];
+  onAddProvider: () => void;
+  onEditProvider: (provider: SSOProvider) => void;
+  onDeleteProvider: (id: number) => void;
+  onToggleEnabled: (id: number, enabled: boolean) => void;
+};
+
+export function AdminSSOSection({
+  open,
+  onToggle,
+  providers,
+  onAddProvider,
+  onEditProvider,
+  onDeleteProvider,
+  onToggleEnabled,
+}: AdminSSOSectionProps) {
+  const { t } = useTranslation();
+
+  return (
+    <AccordionSection
+      label={t("admin.sectionSso")}
+      icon={<Shield className="size-3.5" />}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="flex flex-col gap-3 pt-3">
+        <span className="text-[10px] text-muted-foreground">
+          <a
+            href="https://docs.termix.site/features/authentication/sso-providers"
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-brand hover:underline"
+          >
+            {t("admin.ssoDocsLink")}
+          </a>
+        </span>
+        {providers.length === 0 ? (
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.ssoNoProviders")}
+          </span>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {providers.map((provider) => (
+              <div
+                key={provider.id}
+                className="flex items-center gap-2 p-2 border border-border bg-background"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium truncate">
+                      {provider.name}
+                    </span>
+                    <span className="text-[9px] px-1 py-0.5 bg-muted text-muted-foreground font-mono uppercase">
+                      {SSO_TYPE_LABELS[provider.type] ?? provider.type}
+                    </span>
+                  </div>
+                </div>
+                <AdminToggle
+                  on={provider.enabled}
+                  onToggle={() =>
+                    onToggleEnabled(provider.id, !provider.enabled)
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => onEditProvider(provider)}
+                  title={t("admin.ssoEditProvider")}
+                >
+                  <Pencil className="size-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => onDeleteProvider(provider.id)}
+                  title={t("admin.ssoDeleteProvider")}
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand"
+          onClick={onAddProvider}
+        >
+          <Plus className="size-3" />
+          {t("admin.ssoAddProvider")}
+        </Button>
+      </div>
+    </AccordionSection>
+  );
+}
+
+type AdminHostDefaultsSectionProps = {
+  open: boolean;
+  onToggle: () => void;
+  defaults: HostDefaults;
+  setDefaults: Dispatch<SetStateAction<HostDefaults>>;
+  handleSaveDefaults: () => void;
+};
+
+export function AdminHostDefaultsSection({
+  open,
+  onToggle,
+  defaults,
+  setDefaults,
+  handleSaveDefaults,
+}: AdminHostDefaultsSectionProps) {
+  const { t } = useTranslation();
+
+  return (
+    <AccordionSection
+      label={t("admin.sectionHostDefaults")}
+      icon={<Server className="size-3.5" />}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="flex flex-col gap-4 pt-3">
+        <span className="text-[10px] text-muted-foreground">
+          {t("admin.hostDefaultsDesc")}
+        </span>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("admin.hostDefaultsSocks5")}
+          </span>
+          <SettingRow
+            label={t("admin.hostDefaultsUseSocks5")}
+            description={t("admin.hostDefaultsUseSocks5Desc")}
+          >
+            <AdminToggle
+              on={defaults.useSocks5 ?? false}
+              onToggle={() =>
+                setDefaults((p) => ({ ...p, useSocks5: !p.useSocks5 }))
+              }
+            />
+          </SettingRow>
+          {defaults.useSocks5 && (
+            <div className="flex flex-col gap-3 ml-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                  {t("admin.hostDefaultsSocks5Host")}
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    value={defaults.socks5Host ?? ""}
+                    onChange={(e) =>
+                      setDefaults((p) => ({ ...p, socks5Host: e.target.value }))
+                    }
+                    placeholder="127.0.0.1"
+                    className="text-xs"
+                  />
+                  <Input
+                    type="number"
+                    value={defaults.socks5Port ?? 1080}
+                    onChange={(e) =>
+                      setDefaults((p) => ({
+                        ...p,
+                        socks5Port: Number(e.target.value),
+                      }))
+                    }
+                    placeholder="1080"
+                    className="text-xs w-24 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                  {t("admin.hostDefaultsSocks5Username")}
+                </label>
+                <Input
+                  value={defaults.socks5Username ?? ""}
+                  onChange={(e) =>
+                    setDefaults((p) => ({
+                      ...p,
+                      socks5Username: e.target.value,
+                    }))
+                  }
+                  className="text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                  {t("admin.hostDefaultsSocks5Password")}
+                </label>
+                <PasswordInput
+                  value={defaults.socks5Password ?? ""}
+                  onChange={(e) =>
+                    setDefaults((p) => ({
+                      ...p,
+                      socks5Password: e.target.value,
+                    }))
+                  }
+                  className="h-8 text-xs pr-8"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("admin.hostDefaultsMetrics")}
+          </span>
+          <SettingRow
+            label={t("admin.hostDefaultsMetricsEnabled")}
+            description={t("admin.hostDefaultsMetricsEnabledDesc")}
+          >
+            <AdminToggle
+              on={defaults.metricsEnabled ?? true}
+              onToggle={() =>
+                setDefaults((p) => ({
+                  ...p,
+                  metricsEnabled: !(p.metricsEnabled ?? true),
+                }))
+              }
+            />
+          </SettingRow>
+          <SettingRow
+            label={t("admin.hostDefaultsStatusCheckEnabled")}
+            description={t("admin.hostDefaultsStatusCheckEnabledDesc")}
+          >
+            <AdminToggle
+              on={defaults.statusCheckEnabled ?? true}
+              onToggle={() =>
+                setDefaults((p) => ({
+                  ...p,
+                  statusCheckEnabled: !(p.statusCheckEnabled ?? true),
+                }))
+              }
+            />
+          </SettingRow>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border pt-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("admin.hostDefaultsTerminal")}
+          </span>
+          <SettingRow
+            label={t("admin.hostDefaultsSessionLogging")}
+            description={t("admin.hostDefaultsSessionLoggingDesc")}
+          >
+            <AdminToggle
+              on={defaults.enableSessionLogging ?? true}
+              onToggle={() =>
+                setDefaults((p) => ({
+                  ...p,
+                  enableSessionLogging: !(p.enableSessionLogging ?? true),
+                }))
+              }
+            />
+          </SettingRow>
+          <SettingRow
+            label={t("admin.hostDefaultsCommandHistory")}
+            description={t("admin.hostDefaultsCommandHistoryDesc")}
+          >
+            <AdminToggle
+              on={defaults.enableCommandHistory ?? true}
+              onToggle={() =>
+                setDefaults((p) => ({
+                  ...p,
+                  enableCommandHistory: !(p.enableCommandHistory ?? true),
+                }))
+              }
+            />
+          </SettingRow>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7"
+          onClick={handleSaveDefaults}
+        >
+          {t("common.save")}
+        </Button>
+      </div>
+    </AccordionSection>
+  );
+}
+
+const CERT_STATUS_STYLES: Record<AcmeSettings["certStatus"], string> = {
+  none: "text-muted-foreground",
+  valid: "text-green-500",
+  expiring: "text-yellow-500",
+  expired: "text-destructive",
+};
+
+type AdminSSLSectionProps = {
+  open: boolean;
+  onToggle: () => void;
+  settings: AcmeSettings;
+  setSettings: Dispatch<SetStateAction<AcmeSettings>>;
+  cloudflareTokenDraft: string;
+  setCloudflareTokenDraft: Dispatch<SetStateAction<string>>;
+  requesting: boolean;
+  handleSave: () => void;
+  handleRequest: () => void;
+  manualCertDraft: string;
+  setManualCertDraft: Dispatch<SetStateAction<string>>;
+  manualKeyDraft: string;
+  setManualKeyDraft: Dispatch<SetStateAction<string>>;
+  manualUploading: boolean;
+  handleManualUpload: () => void;
+};
+
+export function AdminSSLSection({
+  open,
+  onToggle,
+  settings,
+  setSettings,
+  cloudflareTokenDraft,
+  setCloudflareTokenDraft,
+  requesting,
+  handleSave,
+  handleRequest,
+  manualCertDraft,
+  setManualCertDraft,
+  manualKeyDraft,
+  setManualKeyDraft,
+  manualUploading,
+  handleManualUpload,
+}: AdminSSLSectionProps) {
+  const { t } = useTranslation();
+
+  const certStatusLabel: Record<AcmeSettings["certStatus"], string> = {
+    none: t("admin.sslCertStatusNone"),
+    valid: t("admin.sslCertStatusValid"),
+    expiring: t("admin.sslCertStatusExpiring"),
+    expired: t("admin.sslCertStatusExpired"),
+  };
+
+  return (
+    <AccordionSection
+      label={t("admin.sectionSsl")}
+      icon={<Lock className="size-3.5" />}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="flex flex-col gap-3 pt-3">
+        <span className="text-[10px] text-muted-foreground">
+          {t("admin.sslDescription")}{" "}
+          <a
+            href="https://docs.termix.site/features/networking/ssl"
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-brand hover:underline"
+          >
+            {t("admin.sslDocsLink")}
+          </a>
+        </span>
+
+        <div className="flex flex-col gap-0.5 p-2 border border-border bg-background/50">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+              {t("admin.sslCertStatus")}
+            </span>
+            <span
+              className={`text-xs font-medium ${CERT_STATUS_STYLES[settings.certStatus]}`}
+            >
+              {certStatusLabel[settings.certStatus]}
+            </span>
+          </div>
+          {settings.certExpiresAt && (
+            <span className="text-[10px] text-muted-foreground">
+              {t("admin.sslCertExpiresAt", {
+                date: new Date(settings.certExpiresAt).toLocaleDateString(),
+              })}
+            </span>
+          )}
+          {settings.lastIssuedAt && (
+            <span className="text-[10px] text-muted-foreground">
+              {t("admin.sslLastIssued", {
+                date: new Date(settings.lastIssuedAt).toLocaleString(),
+              })}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+            {t("admin.sslChallengeType")}
+          </label>
+          <Select
+            value={settings.challengeType}
+            onValueChange={(v) =>
+              setSettings((p) => ({
+                ...p,
+                challengeType: v as AcmeChallengeType,
+              }))
+            }
+          >
+            <SelectTrigger size="sm" className="w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="http-webroot" className="text-xs">
+                HTTP (webroot)
+              </SelectItem>
+              <SelectItem value="dns-cloudflare" className="text-xs">
+                DNS (Cloudflare)
+              </SelectItem>
+              <SelectItem value="manual" className="text-xs">
+                {t("admin.sslManualOption")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <span className="text-[10px] text-muted-foreground">
+            {t("admin.sslChallengeTypeDesc")}
+          </span>
+        </div>
+
+        {settings.challengeType !== "manual" && (
+          <>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                {t("admin.sslDomain")}
+              </label>
+              <Input
+                value={settings.domain}
+                onChange={(e) =>
+                  setSettings((p) => ({ ...p, domain: e.target.value }))
+                }
+                placeholder={t("admin.sslDomainPlaceholder")}
+                className="text-xs"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                {t("admin.sslEmail")}
+              </label>
+              <Input
+                value={settings.email}
+                onChange={(e) =>
+                  setSettings((p) => ({ ...p, email: e.target.value }))
+                }
+                placeholder={t("admin.sslEmailPlaceholder")}
+                className="text-xs"
+              />
+            </div>
+          </>
+        )}
+
+        {settings.challengeType === "dns-cloudflare" && (
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+              {t("admin.sslCloudflareToken")}
+            </label>
+            <PasswordInput
+              value={cloudflareTokenDraft}
+              onChange={(e) => setCloudflareTokenDraft(e.target.value)}
+              placeholder={
+                settings.cloudflareToken ||
+                t("admin.sslCloudflareTokenPlaceholder")
+              }
+              className="text-xs h-8 pr-8"
+            />
+            <span className="text-[10px] text-muted-foreground">
+              {t("admin.sslCloudflareTokenDesc")}
+            </span>
+          </div>
+        )}
+
+        {settings.challengeType === "manual" && (
+          <>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                {t("admin.sslManualCert")}
+              </label>
+              <textarea
+                rows={5}
+                value={manualCertDraft}
+                onChange={(e) => setManualCertDraft(e.target.value)}
+                placeholder={t("admin.sslManualCertPlaceholder")}
+                spellCheck={false}
+                className="w-full px-2 py-1.5 text-[10px] font-mono bg-background border border-border text-foreground placeholder:text-muted-foreground resize-none outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+                {t("admin.sslManualKey")}
+              </label>
+              <textarea
+                rows={5}
+                value={manualKeyDraft}
+                onChange={(e) => setManualKeyDraft(e.target.value)}
+                placeholder={t("admin.sslManualKeyPlaceholder")}
+                spellCheck={false}
+                className="w-full px-2 py-1.5 text-[10px] font-mono bg-background border border-border text-foreground placeholder:text-muted-foreground resize-none outline-none focus:ring-1 focus:ring-ring"
+              />
+              <span className="text-[10px] text-muted-foreground">
+                {t("admin.sslManualDesc")}
+              </span>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7"
+              onClick={handleManualUpload}
+              disabled={manualUploading}
+            >
+              <RefreshCw
+                className={`size-3 ${manualUploading ? "animate-spin" : ""}`}
+              />
+              {manualUploading
+                ? t("admin.sslManualUploadLoading")
+                : t("admin.sslManualUpload")}
+            </Button>
+          </>
+        )}
+
+        <span className="text-[10px] text-muted-foreground border-t border-border pt-2">
+          {t("admin.sslInfoNote")}
+        </span>
+
+        {settings.challengeType !== "manual" && (
+          <div className="flex flex-col gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7"
+              onClick={handleSave}
+            >
+              {t("admin.sslSave")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand h-7"
+              onClick={handleRequest}
+              disabled={requesting}
+            >
+              <RefreshCw
+                className={`size-3 ${requesting ? "animate-spin" : ""}`}
+              />
+              {requesting
+                ? t("admin.sslRequestCertLoading")
+                : t("admin.sslRequestCert")}
+            </Button>
+          </div>
+        )}
+      </div>
+    </AccordionSection>
+  );
+}
