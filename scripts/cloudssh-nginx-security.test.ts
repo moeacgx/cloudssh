@@ -51,6 +51,12 @@ describe.each(configurations)("%s Agent 入口安全约束", (filePath) => {
       /location \^~ \/agent\/ \{[\s\S]*?proxy_set_header X-Forwarded-For \$remote_addr;/,
     );
   });
+
+  it("把管理员更新接口转发到控制面并禁止缓存", () => {
+    expect(configuration).toMatch(
+      /location ~ \^\/admin\/updates\(\/\.\*\)\?\$ \{[\s\S]*?proxy_pass http:\/\/127\.0\.0\.1:30001;[\s\S]*?add_header Cache-Control "private, no-store" always;/,
+    );
+  });
 });
 
 describe("可信代理运行时配置", () => {
