@@ -256,10 +256,11 @@ Agent SQLite 和解密后主 SQLite 的 `integrity_check`，并用根密钥逐�
 
 ## 在线更新
 
-正式部署可选装独立更新器，在管理后台查看当前版本、Release、更新历史并执行
-一键更新或回退。主应用不会挂载 Docker Socket；更新前必须生成并校验完整备份，
-新镜像必须通过健康检查，否则自动恢复旧镜像。安装方式、安全边界、发布清单及
-故障恢复说明见 [CloudSSH 在线更新](CLOUDSSH-UPDATES.md)。
+CloudSSH 使用容器内自更新，不需要独立 updater sidecar，也不会向应用挂载
+Docker Socket。管理员可以在后台查看当前版本、Release 和更新历史，并在
+`auto` 或 `binary` 模式下执行一键更新；`image` 模式仍由宿主机执行
+Compose 更新。更新前必须生成并校验完整备份，详细安全边界与故障恢复说明见
+[CloudSSH 在线更新](CLOUDSSH-UPDATES.md)。
 
 ## 上线顺序
 
