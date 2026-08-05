@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>termix-ssh</id>
+    <version>VERSION_PLACEHOLDER</version>
+    <packageSourceUrl>https://github.com/moeacgx/cloudssh</packageSourceUrl>
+    <owners>bugattiguy527</owners>
+    <title>Termix SSH</title>
+    <authors>bugattiguy527</authors>
+    <projectUrl>https://github.com/moeacgx/cloudssh</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/moeacgx/cloudssh/main/public/icon.png</iconUrl>
+    <licenseUrl>https://raw.githubusercontent.com/moeacgx/cloudssh/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/moeacgx/cloudssh</projectSourceUrl>
+    <docsUrl>https://github.com/moeacgx/cloudssh#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/moeacgx/cloudssh/issues</bugTrackerUrl>
+    <tags>docker ssh terminal telnet self-hosted rdp file-management vnc ssh-tunnel server-stats termix</tags>
+    <summary>Self-hosted SSH and remote desktop management.</summary>
+    <description>
+Termix is an open-source, forever-free, self-hosted all-in-one server management platform. It provides a multi-platform solution for managing your servers and infrastructure through a single, intuitive interface. Termix offers SSH terminal access, remote desktop control (RDP, VNC, Telnet), SSH tunneling capabilities, remote file management, and many other tools. Termix is the perfect free and self-hosted alternative to Termius available for all platforms.
+
+This package installs the desktop application version of Termix.
+    </description>
+    <releaseNotes>https://github.com/moeacgx/cloudssh/releases</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

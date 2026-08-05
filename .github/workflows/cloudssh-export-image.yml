@@ -1,0 +1,118 @@
+name: CloudSSH 发布镜像校验
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "已经发布的正式版本，例如 2.6.0-cloudssh.18"
+        required: true
+        type: string
+
+concurrency:
+  group: cloudssh-export-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  CLOUDSSH_IMAGE: ghcr.io/${{ github.repository_owner }}/cloudssh
+
+jobs:
+  export:
+    name: 校验 amd64 正式镜像附件
+    if: ${{ github.repository == 'moeacgx/cloudssh' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: 检出导出工具
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: 校验不可变 Release 清单
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^2\.6\.0-cloudssh\.[1-9][0-9]*$ ]]; then
+            echo "版本格式无效：$VERSION" >&2
+            exit 2
+          fi
+          TAG="release-$VERSION-tag"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'cloudssh-release.json*' \
+            --dir release
+          (cd release && sha256sum -c cloudssh-release.json.sha256)
+          TAG_REVISION="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          node - "$VERSION" "$TAG_REVISION" <<'NODE'
+          const fs = require("node:fs");
+          const [version, tagRevision] = process.argv.slice(2);
+          const manifest = JSON.parse(
+            fs.readFileSync("release/cloudssh-release.json", "utf8"),
+          );
+          const digestPattern = /^sha256:[0-9a-f]{64}$/;
+          const sha256Pattern = /^[0-9a-f]{64}$/;
+          if (manifest.schemaVersion !== 3 || manifest.channel !== "stable") {
+            throw new Error("发布清单通道或版本不受支持");
+          }
+          if (manifest.version !== version || manifest.revision !== tagRevision) {
+            throw new Error("发布清单与不可变标签不一致");
+          }
+          if (
+            manifest.image !== process.env.CLOUDSSH_IMAGE ||
+            !digestPattern.test(manifest.digest)
+          ) {
+            throw new Error("发布清单应用镜像无效");
+          }
+          if (
+            manifest.runtime?.manifest !== "cloudssh-self-update.json" ||
+            !sha256Pattern.test(manifest.runtime?.sha256)
+          ) {
+            throw new Error("发布清单运行包信息无效");
+          }
+          if (
+            manifest.minEntrypointProtocol !== 2 ||
+            manifest.deploymentContract !== "cloudssh-self-update-v1"
+          ) {
+            throw new Error("发布清单部署契约不受支持");
+          }
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `digest=${manifest.digest}\nrevision=${manifest.revision}\n`,
+          );
+          NODE
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 下载并校验不可变 Release 中的 amd64 镜像
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          REVISION: ${{ steps.release.outputs.revision }}
+          TAG: ${{ steps.release.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          LOCAL_TAG="cloudssh-termix:$VERSION"
+          ARCHIVE="cloudssh-image-$VERSION-linux-amd64.tar.gz"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$ARCHIVE*"
+          sha256sum -c "$ARCHIVE.sha256"
+          gzip -dc "$ARCHIVE" | docker load
+          IMAGE_REVISION="$(docker image inspect "$LOCAL_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          IMAGE_VERSION="$(docker image inspect "$LOCAL_TAG" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
+          [ "$IMAGE_REVISION" = "$REVISION" ]
+          [ "$IMAGE_VERSION" = "$VERSION" ]
+          [[ "$(docker image inspect "$LOCAL_TAG" --format '{{.Id}}')" == "$(cat "$ARCHIVE.id")" ]]

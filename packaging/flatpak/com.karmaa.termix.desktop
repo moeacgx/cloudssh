@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Termix
+Comment=Self-hosted SSH and remote desktop management.
+Exec=run.sh %U
+Icon=com.karmaa.termix
+Terminal=false
+Type=Application
+Categories=Development;Network;System;
+Keywords=ssh;terminal;server;management;tunnel;
+StartupWMClass=termix
+StartupNotify=true

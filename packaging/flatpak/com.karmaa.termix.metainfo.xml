@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>com.karmaa.termix</id>
+    <name>Termix</name>
+    <summary>Self-hosted SSH and remote desktop management.</summary>
+
+    <metadata_license>CC0-1.0</metadata_license>
+    <project_license>Apache-2.0</project_license>
+
+    <developer_name>bugattiguy527</developer_name>
+
+    <description>
+        <p>
+            Termix is an open-source, forever-free, self-hosted all-in-one server management platform. It provides a
+            multi-platform solution for managing your servers and infrastructure through a single, intuitive interface.
+            Termix offers SSH terminal access, remote desktop control (RDP, VNC, Telnet), SSH tunneling capabilities,
+            remote file management, and many other tools. Termix is the perfect free and self-hosted alternative to
+            Termius available for all platforms.
+        </p>
+    </description>
+
+    <launchable type="desktop-id">com.karmaa.termix.desktop</launchable>
+
+    <screenshots>
+        <screenshot type="default">
+            <image>https://raw.githubusercontent.com/moeacgx/cloudssh/main/public/screenshots/terminal.png</image>
+            <caption>SSH Terminal Interface</caption>
+        </screenshot>
+    </screenshots>
+
+    <url type="homepage">https://github.com/moeacgx/cloudssh</url>
+    <url type="bugtracker">https://github.com/moeacgx/cloudssh/issues</url>
+    <url type="help">https://github.com/moeacgx/cloudssh#readme</url>
+    <url type="vcs-browser">https://github.com/moeacgx/cloudssh</url>
+
+    <content_rating type="oars-1.1">
+        <content_attribute id="social-info">moderate</content_attribute>
+    </content_rating>
+
+    <releases>
+        <release version="VERSION_PLACEHOLDER" date="DATE_PLACEHOLDER">
+            <description>
+                <p>Latest release of Termix</p>
+            </description>
+            <url>https://github.com/moeacgx/cloudssh/releases</url>
+        </release>
+    </releases>
+
+    <categories>
+        <category>Development</category>
+        <category>Network</category>
+        <category>System</category>
+    </categories>
+
+    <keywords>
+        <keyword>docker</keyword>
+        <keyword>ssh</keyword>
+        <keyword>terminal</keyword>
+        <keyword>telnet</keyword>
+        <keyword>self-hosted</keyword>
+        <keyword>rdp</keyword>
+        <keyword>file-management</keyword>
+        <keyword>vnc</keyword>
+        <keyword>ssh-tunnel</keyword>
+        <keyword>server-stats</keyword>
+        <keyword>termix</keyword>
+
+    </keywords>
+
+    <provides>
+        <binary>termix</binary>
+    </provides>
+
+    <requires>
+        <internet>always</internet>
+    </requires>
+</component>

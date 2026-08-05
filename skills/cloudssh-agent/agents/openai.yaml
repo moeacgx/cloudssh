@@ -1,0 +1,4 @@
+interface:
+  display_name: "CloudSSH Agent"
+  short_description: "无需 MCP，安全管理主机、SSH 会话与 SFTP 文件"
+  default_prompt: "使用 $cloudssh-agent 在已授权项目中安全管理主机、快速连接、SSH 会话、SFTP 文件与任务，无需配置 MCP；上传和下载只使用本地文件路径。"

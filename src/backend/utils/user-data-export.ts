@@ -1,0 +1,275 @@
+import {
+  createCurrentDismissedAlertRepository,
+  createCurrentFileManagerBookmarkRepository,
+  createCurrentTransferRecentRepository,
+  createCurrentUserDataExportRepository,
+  createCurrentUserRepository,
+} from "../database/repositories/factory.js";
+import { DataCrypto } from "./data-crypto.js";
+import { databaseLogger } from "./logger.js";
+
+interface UserExportData {
+  version: string;
+  exportedAt: string;
+  userId: string;
+  username: string;
+  userData: {
+    sshHosts: unknown[];
+    sshCredentials: unknown[];
+    fileManagerData: {
+      recent: unknown[];
+      pinned: unknown[];
+      shortcuts: unknown[];
+      transferRecent: unknown[];
+    };
+    dismissedAlerts: unknown[];
+  };
+  metadata: {
+    totalRecords: number;
+    encrypted: boolean;
+    exportType: "user_data" | "system_config" | "all";
+  };
+}
+
+class UserDataExport {
+  private static readonly EXPORT_VERSION = "v2.0";
+
+  static async exportUserData(
+    userId: string,
+    options: {
+      format?: "encrypted" | "plaintext";
+      scope?: "user_data" | "all";
+      includeCredentials?: boolean;
+    } = {},
+  ): Promise<UserExportData> {
+    const {
+      format = "encrypted",
+      scope = "user_data",
+      includeCredentials = true,
+    } = options;
+
+    try {
+      const userRecord = await createCurrentUserRepository().findById(userId);
+      if (!userRecord) {
+        throw new Error(`User not found: ${userId}`);
+      }
+
+      let userDataKey: Buffer | null = null;
+      if (format === "plaintext") {
+        userDataKey = DataCrypto.getUserDataKey(userId);
+        if (!userDataKey) {
+          throw new Error(
+            "User data not unlocked - password required for plaintext export",
+          );
+        }
+      }
+
+      const exportRepository = createCurrentUserDataExportRepository();
+      const sshHosts = await exportRepository.listHostsByUserId(userId);
+      const processedSshHosts =
+        format === "plaintext" && userDataKey
+          ? sshHosts.map((host) =>
+              DataCrypto.decryptRecord("ssh_data", host, userId, userDataKey!),
+            )
+          : sshHosts;
+
+      let sshCredentialsData: unknown[] = [];
+      if (includeCredentials) {
+        const credentials =
+          await exportRepository.listCredentialsByUserId(userId);
+        sshCredentialsData =
+          format === "plaintext" && userDataKey
+            ? credentials.map((cred) =>
+                DataCrypto.decryptRecord(
+                  "ssh_credentials",
+                  cred,
+                  userId,
+                  userDataKey!,
+                ),
+              )
+            : credentials;
+      }
+
+      const [recentFiles, pinnedFiles, shortcuts, transferRecentData] =
+        await Promise.all([
+          createCurrentFileManagerBookmarkRepository().listRecentByUserId(
+            userId,
+          ),
+          createCurrentFileManagerBookmarkRepository().listPinnedByUserId(
+            userId,
+          ),
+          createCurrentFileManagerBookmarkRepository().listShortcutsByUserId(
+            userId,
+          ),
+          createCurrentTransferRecentRepository().listByUserId(userId),
+        ]);
+
+      const alerts =
+        await createCurrentDismissedAlertRepository().listByUserId(userId);
+
+      const exportData: UserExportData = {
+        version: this.EXPORT_VERSION,
+        exportedAt: new Date().toISOString(),
+        userId: userRecord.id,
+        username: userRecord.username,
+        userData: {
+          sshHosts: processedSshHosts,
+          sshCredentials: sshCredentialsData,
+          fileManagerData: {
+            recent: recentFiles,
+            pinned: pinnedFiles,
+            shortcuts: shortcuts,
+            transferRecent: transferRecentData,
+          },
+          dismissedAlerts: alerts,
+        },
+        metadata: {
+          totalRecords:
+            processedSshHosts.length +
+            sshCredentialsData.length +
+            recentFiles.length +
+            pinnedFiles.length +
+            shortcuts.length +
+            transferRecentData.length +
+            alerts.length,
+          encrypted: format === "encrypted",
+          exportType: scope,
+        },
+      };
+
+      databaseLogger.success("User data export completed", {
+        operation: "user_data_export_complete",
+        userId,
+        totalRecords: exportData.metadata.totalRecords,
+        format,
+        sshHosts: processedSshHosts.length,
+        sshCredentials: sshCredentialsData.length,
+      });
+
+      return exportData;
+    } catch (error) {
+      databaseLogger.error("User data export failed", error, {
+        operation: "user_data_export_failed",
+        userId,
+        format,
+        scope,
+      });
+      throw error;
+    }
+  }
+
+  static async exportUserDataToJSON(
+    userId: string,
+    options: {
+      format?: "encrypted" | "plaintext";
+      scope?: "user_data" | "all";
+      includeCredentials?: boolean;
+      pretty?: boolean;
+    } = {},
+  ): Promise<string> {
+    const { pretty = true } = options;
+    const exportData = await this.exportUserData(userId, options);
+    return JSON.stringify(exportData, null, pretty ? 2 : 0);
+  }
+
+  static validateExportData(data: unknown): {
+    valid: boolean;
+    errors: string[];
+  } {
+    const errors: string[] = [];
+
+    if (!data || typeof data !== "object") {
+      errors.push("Export data must be an object");
+      return { valid: false, errors };
+    }
+
+    const dataObj = data as Record<string, unknown>;
+
+    if (!dataObj.version) {
+      errors.push("Missing version field");
+    }
+
+    if (!dataObj.userId) {
+      errors.push("Missing userId field");
+    }
+
+    if (!dataObj.userData || typeof dataObj.userData !== "object") {
+      errors.push("Missing or invalid userData field");
+    }
+
+    if (!dataObj.metadata || typeof dataObj.metadata !== "object") {
+      errors.push("Missing or invalid metadata field");
+    }
+
+    if (dataObj.userData) {
+      const userData = dataObj.userData as Record<string, unknown>;
+      const requiredFields = [
+        "sshHosts",
+        "sshCredentials",
+        "fileManagerData",
+        "dismissedAlerts",
+      ];
+      for (const field of requiredFields) {
+        if (
+          !Array.isArray(userData[field]) &&
+          !(field === "fileManagerData" && typeof userData[field] === "object")
+        ) {
+          errors.push(`Missing or invalid userData.${field} field`);
+        }
+      }
+
+      if (
+        userData.fileManagerData &&
+        typeof userData.fileManagerData === "object"
+      ) {
+        const fileManagerData = userData.fileManagerData as Record<
+          string,
+          unknown
+        >;
+        const fmFields = ["recent", "pinned", "shortcuts"];
+        for (const field of fmFields) {
+          if (!Array.isArray(fileManagerData[field])) {
+            errors.push(
+              `Missing or invalid userData.fileManagerData.${field} field`,
+            );
+          }
+        }
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  static getExportStats(data: UserExportData): {
+    version: string;
+    exportedAt: string;
+    username: string;
+    totalRecords: number;
+    breakdown: {
+      sshHosts: number;
+      sshCredentials: number;
+      fileManagerItems: number;
+      dismissedAlerts: number;
+    };
+    encrypted: boolean;
+  } {
+    return {
+      version: data.version,
+      exportedAt: data.exportedAt,
+      username: data.username,
+      totalRecords: data.metadata.totalRecords,
+      breakdown: {
+        sshHosts: data.userData.sshHosts.length,
+        sshCredentials: data.userData.sshCredentials.length,
+        fileManagerItems:
+          data.userData.fileManagerData.recent.length +
+          data.userData.fileManagerData.pinned.length +
+          data.userData.fileManagerData.shortcuts.length,
+        dismissedAlerts: data.userData.dismissedAlerts.length,
+      },
+      encrypted: data.metadata.encrypted,
+    };
+  }
+}
+
+export { UserDataExport, type UserExportData };

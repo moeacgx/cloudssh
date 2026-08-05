@@ -1,0 +1,37 @@
+services:
+  termix-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: termix-dev
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    volumes:
+      - termix-dev-data:/app/data
+    environment:
+      PORT: "8080"
+      NODE_ENV: development
+      GUACD_HOST: "guacd-dev"
+      GUACD_RECORDING_PATH: "/termix-data/session_recordings/guacamole"
+    depends_on:
+      - guacd-dev
+    networks:
+      - termix-dev-net
+
+  guacd-dev:
+    image: guacamole/guacd:1.6.0
+    container_name: guacd-dev
+    restart: unless-stopped
+    volumes:
+      - termix-dev-data:/termix-data
+    networks:
+      - termix-dev-net
+
+volumes:
+  termix-dev-data:
+    driver: local
+
+networks:
+  termix-dev-net:
+    driver: bridge

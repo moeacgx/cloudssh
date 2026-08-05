@@ -1,0 +1,391 @@
+import type { AuthenticatedRequest } from "../../../types/index.js";
+import express from "express";
+import type { Request, Response } from "express";
+import { databaseLogger } from "../../utils/logger.js";
+import { AuthManager } from "../../utils/auth-manager.js";
+import { createCurrentUserPreferenceRepository } from "../repositories/factory.js";
+import type {
+  UserPreferenceRecord,
+  UserPreferenceUpdate,
+} from "../repositories/user-preference-repository.js";
+import { isValidKeybinding } from "./keybinding-validation.js";
+
+const router = express.Router();
+const authManager = AuthManager.getInstance();
+const authenticateJWT = authManager.createAuthMiddleware();
+
+const pickPreferences = (row?: UserPreferenceRecord | null) => ({
+  reopenTabsOnLogin: row?.reopenTabsOnLogin ?? false,
+  theme: row?.theme ?? null,
+  fontSize: row?.fontSize ?? null,
+  accentColor: row?.accentColor ?? null,
+  language: row?.language ?? null,
+  storageMode: row?.storageMode ?? "cloud",
+  commandAutocomplete: row?.commandAutocomplete ?? null,
+  commandPaletteEnabled: row?.commandPaletteEnabled ?? null,
+  showHostTags: row?.showHostTags ?? null,
+  hostTrayOnClick: row?.hostTrayOnClick ?? null,
+  pinAppRail: row?.pinAppRail ?? null,
+  expandAppRailOnHover: row?.expandAppRailOnHover ?? null,
+  foldersCollapsed: row?.foldersCollapsed ?? null,
+  confirmSnippetExecution: row?.confirmSnippetExecution ?? null,
+  disableUpdateCheck: row?.disableUpdateCheck ?? null,
+  confirmTabClose: row?.confirmTabClose ?? null,
+  hiddenRailTabs: row?.hiddenRailTabs ?? null,
+  compactHostView: row?.compactHostView ?? null,
+  statusColorScheme: row?.statusColorScheme ?? null,
+  customThemes: row?.customThemes ?? null,
+  customKeybindings: row?.customKeybindings ?? null,
+});
+
+/**
+ * @openapi
+ * /user-preferences:
+ *   get:
+ *     summary: Get preferences for the current user
+ *     tags:
+ *       - User Preferences
+ *     responses:
+ *       200:
+ *         description: User preferences.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 reopenTabsOnLogin:
+ *                   type: boolean
+ *                 theme:
+ *                   type: string
+ *                   nullable: true
+ *                 fontSize:
+ *                   type: string
+ *                   nullable: true
+ *                 accentColor:
+ *                   type: string
+ *                   nullable: true
+ *                 language:
+ *                   type: string
+ *                   nullable: true
+ *                 storageMode:
+ *                   type: string
+ *                   nullable: true
+ *                 commandAutocomplete:
+ *                   type: boolean
+ *                   nullable: true
+ *                 commandPaletteEnabled:
+ *                   type: boolean
+ *                   nullable: true
+ *                 showHostTags:
+ *                   type: boolean
+ *                   nullable: true
+ *                 hostTrayOnClick:
+ *                   type: boolean
+ *                   nullable: true
+ *                 pinAppRail:
+ *                   type: boolean
+ *                   nullable: true
+ *                 expandAppRailOnHover:
+ *                   type: boolean
+ *                   nullable: true
+ *                 foldersCollapsed:
+ *                   type: boolean
+ *                   nullable: true
+ *                 confirmSnippetExecution:
+ *                   type: boolean
+ *                   nullable: true
+ *                 disableUpdateCheck:
+ *                   type: boolean
+ *                   nullable: true
+ *                 confirmTabClose:
+ *                   type: boolean
+ *                   nullable: true
+ *                 hiddenRailTabs:
+ *                   type: string
+ *                   nullable: true
+ *                 compactHostView:
+ *                   type: boolean
+ *                   nullable: true
+ *                 statusColorScheme:
+ *                   type: string
+ *                   nullable: true
+ *                 customThemes:
+ *                   type: string
+ *                   nullable: true
+ *                   description: JSON-encoded array of the user's saved global custom terminal themes.
+ *                 customKeybindings:
+ *                   type: string
+ *                   nullable: true
+ *                   description: JSON-encoded array of the user's custom terminal keybindings.
+ */
+router.get("/", authenticateJWT, async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).userId;
+  try {
+    const preferences =
+      await createCurrentUserPreferenceRepository().findByUserId(userId);
+
+    return res.json(pickPreferences(preferences));
+  } catch (e) {
+    databaseLogger.error("Failed to get user preferences", e, {
+      operation: "get_user_preferences",
+      userId,
+    });
+    return res.status(500).json({ error: "Failed to get user preferences" });
+  }
+});
+
+/**
+ * @openapi
+ * /user-preferences:
+ *   put:
+ *     summary: Update preferences for the current user
+ *     tags:
+ *       - User Preferences
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reopenTabsOnLogin:
+ *                 type: boolean
+ *               theme:
+ *                 type: string
+ *               fontSize:
+ *                 type: string
+ *               accentColor:
+ *                 type: string
+ *               language:
+ *                 type: string
+ *               storageMode:
+ *                 type: string
+ *               commandAutocomplete:
+ *                 type: boolean
+ *               commandPaletteEnabled:
+ *                 type: boolean
+ *               showHostTags:
+ *                 type: boolean
+ *               hostTrayOnClick:
+ *                 type: boolean
+ *               pinAppRail:
+ *                 type: boolean
+ *               expandAppRailOnHover:
+ *                 type: boolean
+ *               foldersCollapsed:
+ *                 type: boolean
+ *               confirmSnippetExecution:
+ *                 type: boolean
+ *               disableUpdateCheck:
+ *                 type: boolean
+ *               confirmTabClose:
+ *                 type: boolean
+ *               hiddenRailTabs:
+ *                 type: string
+ *               compactHostView:
+ *                 type: boolean
+ *               statusColorScheme:
+ *                 type: string
+ *               customThemes:
+ *                 type: string
+ *                 description: JSON-encoded array of the user's saved global custom terminal themes.
+ *               customKeybindings:
+ *                 type: string
+ *                 description: JSON-encoded array of the user's custom terminal keybindings.
+ *     responses:
+ *       200:
+ *         description: Preferences updated successfully.
+ */
+router.put("/", authenticateJWT, async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).userId;
+  const {
+    reopenTabsOnLogin,
+    theme,
+    fontSize,
+    accentColor,
+    language,
+    storageMode,
+    commandAutocomplete,
+    commandPaletteEnabled,
+    showHostTags,
+    hostTrayOnClick,
+    pinAppRail,
+    expandAppRailOnHover,
+    foldersCollapsed,
+    confirmSnippetExecution,
+    disableUpdateCheck,
+    confirmTabClose,
+    hiddenRailTabs,
+    compactHostView,
+    statusColorScheme,
+    customThemes,
+    customKeybindings,
+  } = req.body as {
+    reopenTabsOnLogin?: boolean;
+    theme?: string | null;
+    fontSize?: string | null;
+    accentColor?: string | null;
+    language?: string | null;
+    storageMode?: string | null;
+    commandAutocomplete?: boolean | null;
+    commandPaletteEnabled?: boolean | null;
+    showHostTags?: boolean | null;
+    hostTrayOnClick?: boolean | null;
+    pinAppRail?: boolean | null;
+    expandAppRailOnHover?: boolean | null;
+    foldersCollapsed?: boolean | null;
+    confirmSnippetExecution?: boolean | null;
+    disableUpdateCheck?: boolean | null;
+    confirmTabClose?: boolean | null;
+    hiddenRailTabs?: string | null;
+    compactHostView?: boolean | null;
+    statusColorScheme?: string | null;
+    customThemes?: string | null;
+    customKeybindings?: string | null;
+  };
+
+  const updates: UserPreferenceUpdate = {
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (reopenTabsOnLogin !== undefined) {
+    if (typeof reopenTabsOnLogin !== "boolean") {
+      return res
+        .status(400)
+        .json({ error: "reopenTabsOnLogin must be a boolean" });
+    }
+    updates.reopenTabsOnLogin = reopenTabsOnLogin;
+  }
+
+  for (const [key, value] of Object.entries({
+    theme,
+    fontSize,
+    accentColor,
+    language,
+    storageMode,
+    hiddenRailTabs,
+    statusColorScheme,
+    customThemes,
+    customKeybindings,
+  })) {
+    if (value !== undefined && value !== null && typeof value !== "string") {
+      return res.status(400).json({ error: `${key} must be a string` });
+    }
+  }
+
+  if (customThemes !== undefined && customThemes !== null) {
+    let parsedThemes: unknown;
+    try {
+      parsedThemes = JSON.parse(customThemes);
+    } catch {
+      return res
+        .status(400)
+        .json({ error: "customThemes must be a JSON-encoded array" });
+    }
+    if (!Array.isArray(parsedThemes) || parsedThemes.length > 100) {
+      return res.status(400).json({
+        error: "customThemes must be a JSON array of at most 100 themes",
+      });
+    }
+    const isValidTheme = (entry: unknown): boolean =>
+      !!entry &&
+      typeof entry === "object" &&
+      typeof (entry as { id?: unknown }).id === "string" &&
+      typeof (entry as { name?: unknown }).name === "string" &&
+      !!(entry as { colors?: unknown }).colors &&
+      typeof (entry as { colors?: unknown }).colors === "object";
+    if (!parsedThemes.every(isValidTheme)) {
+      return res.status(400).json({
+        error: "Each custom theme must have an id, name, and colors object",
+      });
+    }
+  }
+
+  if (customKeybindings !== undefined && customKeybindings !== null) {
+    let parsedKeybindings: unknown;
+    try {
+      parsedKeybindings = JSON.parse(customKeybindings);
+    } catch {
+      return res
+        .status(400)
+        .json({ error: "customKeybindings must be a JSON-encoded array" });
+    }
+    if (!Array.isArray(parsedKeybindings) || parsedKeybindings.length > 200) {
+      return res.status(400).json({
+        error: "customKeybindings must be a JSON array of at most 200 bindings",
+      });
+    }
+    if (!parsedKeybindings.every(isValidKeybinding)) {
+      return res.status(400).json({
+        error:
+          "Each custom keybinding must have an id, enabled flag, valid combo, and valid action",
+      });
+    }
+  }
+
+  const boolFields: Record<string, boolean | null | undefined> = {
+    commandAutocomplete,
+    commandPaletteEnabled,
+    showHostTags,
+    hostTrayOnClick,
+    pinAppRail,
+    expandAppRailOnHover,
+    foldersCollapsed,
+    confirmSnippetExecution,
+    disableUpdateCheck,
+    confirmTabClose,
+    compactHostView,
+  };
+  for (const [key, value] of Object.entries(boolFields)) {
+    if (value !== undefined && value !== null && typeof value !== "boolean") {
+      return res.status(400).json({ error: `${key} must be a boolean` });
+    }
+  }
+
+  if (theme !== undefined) updates.theme = theme;
+  if (fontSize !== undefined) updates.fontSize = fontSize;
+  if (accentColor !== undefined) updates.accentColor = accentColor;
+  if (language !== undefined) updates.language = language;
+  if (storageMode !== undefined) updates.storageMode = storageMode;
+  if (hiddenRailTabs !== undefined) updates.hiddenRailTabs = hiddenRailTabs;
+  if (commandAutocomplete !== undefined)
+    updates.commandAutocomplete = commandAutocomplete;
+  if (commandPaletteEnabled !== undefined)
+    updates.commandPaletteEnabled = commandPaletteEnabled;
+  if (showHostTags !== undefined) updates.showHostTags = showHostTags;
+  if (hostTrayOnClick !== undefined) updates.hostTrayOnClick = hostTrayOnClick;
+  if (pinAppRail !== undefined) updates.pinAppRail = pinAppRail;
+  if (expandAppRailOnHover !== undefined)
+    updates.expandAppRailOnHover = expandAppRailOnHover;
+  if (foldersCollapsed !== undefined)
+    updates.foldersCollapsed = foldersCollapsed;
+  if (confirmSnippetExecution !== undefined)
+    updates.confirmSnippetExecution = confirmSnippetExecution;
+  if (disableUpdateCheck !== undefined)
+    updates.disableUpdateCheck = disableUpdateCheck;
+  if (confirmTabClose !== undefined) updates.confirmTabClose = confirmTabClose;
+  if (compactHostView !== undefined) updates.compactHostView = compactHostView;
+  if (statusColorScheme !== undefined)
+    updates.statusColorScheme = statusColorScheme;
+  if (customThemes !== undefined) updates.customThemes = customThemes;
+  if (customKeybindings !== undefined)
+    updates.customKeybindings = customKeybindings;
+
+  if (Object.keys(updates).length === 1) {
+    return res.status(400).json({ error: "No preferences provided" });
+  }
+
+  try {
+    await createCurrentUserPreferenceRepository().upsert(userId, updates);
+
+    return res.json({ success: true, ...updates });
+  } catch (e) {
+    databaseLogger.error("Failed to update user preferences", e, {
+      operation: "update_user_preferences",
+      userId,
+    });
+    return res.status(500).json({ error: "Failed to update user preferences" });
+  }
+});
+
+export default router;

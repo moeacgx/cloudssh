@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="favicon.ico" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+
+    <meta name="theme-color" content="#09090b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="CloudSSH" />
+    <link rel="apple-touch-icon" href="icons/512x512.png" />
+    <link rel="manifest" href="manifest.json" />
+    <title>CloudSSH</title>
+    <style>
+      .hide-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .hide-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+
+      .skinny-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: var(--muted-foreground) transparent;
+      }
+
+      .skinny-scrollbar::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+
+      .skinny-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .skinny-scrollbar::-webkit-scrollbar-thumb {
+        background-color: var(--muted-foreground);
+        border-radius: 3px;
+        border: 1px solid transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      window.__TERMIX_BASE_PATH__ = "";
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

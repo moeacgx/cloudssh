@@ -1,0 +1,135 @@
+name: Legacy CloudSSH Docker Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g., 1.8.0)"
+        required: true
+      build_type:
+        description: "Build type"
+        required: true
+        default: "Development"
+        type: choice
+        options:
+          - Development
+          - Beta
+          - Production
+      source_ref:
+        description: "Git ref/SHA to build (defaults to the workflow ref)"
+        required: false
+        default: ""
+
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to build (e.g., 1.8.0)"
+        required: true
+        type: string
+      build_type:
+        description: "Build type (Development or Production)"
+        required: true
+        type: string
+      dry_run:
+        description: "Build the image but do not push to any registry"
+        required: false
+        type: boolean
+        default: false
+      source_ref:
+        description: "Git ref/SHA to build"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    # CloudSSH 正式镜像只能由 cloudssh-release.yml 生成；保留此文件仅供
+    # 上游 Termix 的历史工作流调用，避免出现可覆盖 latest 的第二发布入口。
+    if: ${{ github.repository == 'Termix-SSH/Termix' }}
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Resolve source revision
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Setup Docker Buildx
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Determine tags
+        id: tags
+        run: |
+          VERSION=${{ inputs.version }}
+          BUILD_TYPE=${{ inputs.build_type }}
+
+          TAGS=()
+          ALL_TAGS=()
+
+          if [ "$BUILD_TYPE" = "Production" ]; then
+            TAGS+=("release-$VERSION" "$VERSION" "latest")
+            for tag in "${TAGS[@]}"; do
+              ALL_TAGS+=("${REGISTRY}/${IMAGE_NAME}:$tag")
+            done
+          elif [ "$BUILD_TYPE" = "Beta" ]; then
+            TAGS+=("beta" "beta-$VERSION")
+            for tag in "${TAGS[@]}"; do
+              ALL_TAGS+=("${REGISTRY}/${IMAGE_NAME}:$tag")
+            done
+          else
+            TAGS+=("dev-$VERSION")
+            for tag in "${TAGS[@]}"; do
+              ALL_TAGS+=("${REGISTRY}/${IMAGE_NAME}:$tag")
+            done
+          fi
+
+          echo "ALL_TAGS=$(IFS=,; echo "${ALL_TAGS[*]}")" >> $GITHUB_ENV
+
+      - name: Login to GHCR
+        if: ${{ !inputs.dry_run }}
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: ${{ !inputs.dry_run }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ env.ALL_TAGS }}
+          build-args: |
+            BUILDKIT_CONTEXT_KEEP_GIT_DIR=1
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+            org.opencontainers.image.created=${{ github.run_id }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: ${{ inputs.dry_run && 'type=cacheonly' || 'type=registry,compression=zstd' }}
+
+      - name: Cleanup Docker
+        if: always()
+        run: |
+          docker image prune -af
+          docker system prune -af --volumes

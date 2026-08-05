@@ -1,0 +1,915 @@
+import type { AuthenticatedRequest } from "../../../types/index.js";
+import type { Request, RequestHandler, Response, Router } from "express";
+import { sshLogger } from "../../utils/logger.js";
+import {
+  createCurrentCredentialRepository,
+  createCurrentHostRepository,
+  createCurrentHostResolutionRepository,
+} from "../repositories/factory.js";
+import {
+  isNonEmptyString,
+  isValidPort,
+  normalizeImportedHost,
+} from "./host-normalizers.js";
+import { serializePortKnockSequence } from "../../hosts/port-knock-sequence.js";
+
+type SSHConfigHost = {
+  name: string;
+  hostname?: string;
+  user?: string;
+  port?: number;
+  identityFile?: string;
+  proxyJump?: string;
+};
+
+type ShareCredential = {
+  alias?: unknown;
+  name?: unknown;
+  description?: unknown;
+  folder?: unknown;
+  tags?: unknown;
+  authType?: unknown;
+  username?: unknown;
+  keyType?: unknown;
+};
+
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function tagString(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .map((tag) => textValue(tag))
+      .filter((tag): tag is string => !!tag)
+      .join(",");
+  }
+  return textValue(value) || "";
+}
+
+function normalizeCredentialAuthType(value: unknown): "password" | "key" {
+  return value === "key" ? "key" : "password";
+}
+
+export function parseSSHConfig(content: string): SSHConfigHost[] {
+  const results: SSHConfigHost[] = [];
+  let current: SSHConfigHost | null = null;
+
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const spaceIdx = line.indexOf(" ");
+    if (spaceIdx === -1) continue;
+
+    const key = line.slice(0, spaceIdx).toLowerCase();
+    const value = line.slice(spaceIdx + 1).trim();
+
+    if (key === "host") {
+      if (current && current.hostname) results.push(current);
+      // Skip wildcard patterns
+      if (value === "*" || value.includes("*") || value.includes("?")) {
+        current = null;
+      } else {
+        current = { name: value };
+      }
+      continue;
+    }
+
+    if (!current) continue;
+
+    switch (key) {
+      case "hostname":
+        current.hostname = value;
+        break;
+      case "user":
+        current.user = value;
+        break;
+      case "port": {
+        const p = Number.parseInt(value, 10);
+        if (p > 0 && p <= 65535) current.port = p;
+        break;
+      }
+      case "identityfile":
+        if (!current.identityFile) current.identityFile = value;
+        break;
+      case "proxyjump":
+        current.proxyJump = value;
+        break;
+    }
+  }
+
+  if (current && current.hostname) results.push(current);
+
+  return results;
+}
+
+export function registerHostBulkRoutes(
+  router: Router,
+  authenticateJWT: RequestHandler,
+): void {
+  /**
+   * @openapi
+   * /host/bulk-import:
+   *   post:
+   *     summary: Bulk import SSH hosts
+   *     description: Bulk imports multiple SSH hosts.
+   *     tags:
+   *       - SSH
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               hosts:
+   *                 type: array
+   *                 items:
+   *                   type: object
+   *     responses:
+   *       200:
+   *         description: Import completed.
+   *       400:
+   *         description: Invalid request body.
+   */
+
+  /**
+   * @swagger
+   * /host/bulk-update:
+   *   patch:
+   *     summary: Bulk update partial fields on multiple SSH hosts
+   *     tags: [SSH]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               hostIds:
+   *                 type: array
+   *                 items:
+   *                   type: number
+   *               updates:
+   *                 type: object
+   *     responses:
+   *       200:
+   *         description: Bulk update completed.
+   *       400:
+   *         description: Invalid request body.
+   */
+  router.patch(
+    "/bulk-update",
+    authenticateJWT,
+    async (req: Request, res: Response) => {
+      const userId = (req as AuthenticatedRequest).userId;
+      const { hostIds, updates } = req.body;
+
+      if (!Array.isArray(hostIds) || hostIds.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "hostIds array is required and must not be empty" });
+      }
+
+      if (hostIds.length > 1000) {
+        return res
+          .status(400)
+          .json({ error: "Maximum 1000 hosts allowed per bulk update" });
+      }
+
+      if (
+        !updates ||
+        typeof updates !== "object" ||
+        Object.keys(updates).length === 0
+      ) {
+        return res.status(400).json({
+          error:
+            "updates object is required and must contain at least one field",
+        });
+      }
+
+      try {
+        const hostRepository = createCurrentHostRepository();
+        const ownedHosts = await hostRepository.listBulkUpdateState(
+          userId,
+          hostIds,
+        );
+
+        const ownedIds = ownedHosts.map((h) => h.id);
+        const unauthorizedIds = hostIds.filter(
+          (id: number) => !ownedIds.includes(id),
+        );
+
+        if (ownedIds.length === 0) {
+          return res.status(404).json({ error: "No matching hosts found" });
+        }
+
+        const errors: string[] = [];
+        if (unauthorizedIds.length > 0) {
+          errors.push(
+            `${unauthorizedIds.length} host(s) not found or not owned`,
+          );
+        }
+
+        const simpleUpdates: Record<string, unknown> = {};
+        if (typeof updates.pin === "boolean") simpleUpdates.pin = updates.pin;
+        if (typeof updates.folder === "string")
+          simpleUpdates.folder = updates.folder || null;
+        if (typeof updates.enableTerminal === "boolean")
+          simpleUpdates.enableTerminal = updates.enableTerminal;
+        if (typeof updates.enableTunnel === "boolean")
+          simpleUpdates.enableTunnel = updates.enableTunnel;
+        if (typeof updates.enableFileManager === "boolean")
+          simpleUpdates.enableFileManager = updates.enableFileManager;
+        if (typeof updates.enableDocker === "boolean")
+          simpleUpdates.enableDocker = updates.enableDocker;
+        if (typeof updates.enableTmuxMonitor === "boolean")
+          simpleUpdates.enableTmuxMonitor = updates.enableTmuxMonitor;
+        // Disabling Proxmox is a plain flag flip; enabling is handled per-host
+        // below so each host can default to its own stored credential.
+        if (updates.enableProxmox === false)
+          simpleUpdates.enableProxmox = false;
+
+        if (Object.keys(simpleUpdates).length > 0) {
+          await hostRepository.updateManyForUser(
+            userId,
+            ownedIds,
+            simpleUpdates,
+          );
+        }
+
+        if (updates.statsConfig && typeof updates.statsConfig === "object") {
+          for (const host of ownedHosts) {
+            try {
+              const existing = host.statsConfig
+                ? JSON.parse(host.statsConfig as string)
+                : {};
+              const merged = { ...existing, ...updates.statsConfig };
+              await hostRepository.updateForUser(userId, host.id, {
+                statsConfig: JSON.stringify(merged),
+              });
+            } catch {
+              errors.push(`Failed to update statsConfig for host ${host.id}`);
+            }
+          }
+        }
+
+        // Enabling Proxmox needs per-host handling: each host defaults its
+        // Proxmox credential to the credential already stored on that host, so
+        // discovery works right away without picking one by hand. Existing
+        // proxmoxConfig values are preserved.
+        if (updates.enableProxmox === true) {
+          for (const host of ownedHosts) {
+            try {
+              const existing = host.proxmoxConfig
+                ? JSON.parse(host.proxmoxConfig as string)
+                : {};
+              const merged = {
+                defaultCredentialId:
+                  existing.defaultCredentialId ?? host.credentialId ?? null,
+                windowsPatterns: existing.windowsPatterns ?? "win, windows",
+                dockerPatterns: existing.dockerPatterns ?? "docker",
+                preferredPrefixes:
+                  existing.preferredPrefixes ?? "10., 192.168.",
+                autoSyncEnabled: existing.autoSyncEnabled ?? false,
+                syncIntervalMinutes: existing.syncIntervalMinutes ?? 15,
+                markMissingGuests: existing.markMissingGuests ?? true,
+              };
+              await hostRepository.updateForUser(userId, host.id, {
+                enableProxmox: true,
+                proxmoxConfig: JSON.stringify(merged),
+              });
+            } catch {
+              errors.push(`Failed to enable Proxmox for host ${host.id}`);
+            }
+          }
+        }
+
+        return res.json({
+          updated: ownedIds.length,
+          failed: unauthorizedIds.length,
+          errors,
+        });
+      } catch (error) {
+        sshLogger.error("Failed to bulk update hosts:", error);
+        return res.status(500).json({ error: "Failed to bulk update hosts" });
+      }
+    },
+  );
+
+  router.post(
+    "/bulk-import",
+    authenticateJWT,
+    async (req: Request, res: Response) => {
+      const userId = (req as AuthenticatedRequest).userId;
+      const {
+        hosts: hostsToImport,
+        overwrite,
+        credentials: credentialsToImport,
+      } = req.body;
+
+      if (!Array.isArray(hostsToImport) || hostsToImport.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "Hosts array is required and must not be empty" });
+      }
+
+      if (hostsToImport.length > 100) {
+        return res
+          .status(400)
+          .json({ error: "Maximum 100 hosts allowed per import" });
+      }
+
+      const results = {
+        success: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [] as string[],
+        createdHostIds: [] as number[],
+        updatedHostIds: [] as number[],
+        matchedHostIds: [] as number[],
+      };
+
+      const credentialAliasMap = new Map<string, number>();
+      const addCredentialAlias = (alias: unknown, id: number) => {
+        const key = textValue(alias);
+        if (key) credentialAliasMap.set(key.toLowerCase(), id);
+      };
+
+      try {
+        const credentialRepository = createCurrentCredentialRepository();
+        const existingCredentials =
+          await credentialRepository.listDecryptedByUserId(userId);
+
+        for (const credential of existingCredentials) {
+          addCredentialAlias(credential.name, credential.id as number);
+        }
+
+        if (Array.isArray(credentialsToImport)) {
+          for (const rawCredential of credentialsToImport as ShareCredential[]) {
+            const alias = textValue(rawCredential.alias);
+            const name = textValue(rawCredential.name) || alias;
+            if (!alias || !name) continue;
+
+            const existingId = credentialAliasMap.get(name.toLowerCase());
+            if (existingId) {
+              addCredentialAlias(alias, existingId);
+              continue;
+            }
+
+            const now = new Date().toISOString();
+            const created = await credentialRepository.createEncryptedForUser(
+              userId,
+              {
+                userId,
+                name,
+                description:
+                  textValue(rawCredential.description) ||
+                  "Imported placeholder. Add the secret before connecting.",
+                folder: textValue(rawCredential.folder),
+                tags: tagString(rawCredential.tags),
+                authType: normalizeCredentialAuthType(rawCredential.authType),
+                username: textValue(rawCredential.username),
+                password: null,
+                key: null,
+                privateKey: null,
+                publicKey: null,
+                keyPassword: null,
+                keyType: textValue(rawCredential.keyType),
+                detectedKeyType: null,
+                usageCount: 0,
+                lastUsed: null,
+                createdAt: now,
+                updatedAt: now,
+              },
+            );
+
+            const createdCredential = created as Record<string, unknown>;
+            addCredentialAlias(alias, createdCredential.id as number);
+            addCredentialAlias(name, createdCredential.id as number);
+          }
+        }
+      } catch (error) {
+        results.errors.push(
+          `Credential placeholders: ${error instanceof Error ? error.message : "failed to prepare credential aliases"}`,
+        );
+      }
+
+      const hostRepository = createCurrentHostRepository();
+      const allHosts =
+        await createCurrentHostResolutionRepository().findHostsByUserId(userId);
+      const existingHostMap = new Map<string, { id: number }>();
+      for (const host of allHosts) {
+        const key = `${host.ip}:${host.port}:${host.username}`;
+        existingHostMap.set(key, { id: host.id as number });
+      }
+
+      for (let i = 0; i < hostsToImport.length; i++) {
+        const hostData = normalizeImportedHost(hostsToImport[i]);
+
+        try {
+          const effectiveConnectionType = hostData.connectionType || "ssh";
+
+          if (
+            effectiveConnectionType === "ssh" &&
+            hostData.authType === "credential" &&
+            !hostData.credentialId &&
+            hostData.credentialAlias
+          ) {
+            hostData.credentialId = credentialAliasMap.get(
+              hostData.credentialAlias.toLowerCase(),
+            );
+          }
+
+          if (!isNonEmptyString(hostData.ip) || !isValidPort(hostData.port)) {
+            results.failed++;
+            results.errors.push(
+              `Host ${i + 1}: Missing required fields (ip, port)`,
+            );
+            continue;
+          }
+
+          if (
+            effectiveConnectionType === "ssh" &&
+            !isNonEmptyString(hostData.username)
+          ) {
+            results.failed++;
+            results.errors.push(
+              `Host ${i + 1}: Username required for SSH connections`,
+            );
+            continue;
+          }
+
+          if (
+            effectiveConnectionType === "ssh" &&
+            hostData.authType &&
+            ![
+              "password",
+              "key",
+              "credential",
+              "none",
+              "opkssh",
+              "tailscale",
+              "vault",
+            ].includes(hostData.authType)
+          ) {
+            results.failed++;
+            results.errors.push(
+              `Host ${i + 1}: Invalid authType. Must be 'password', 'key', 'credential', 'none', 'opkssh', 'tailscale', or 'vault'`,
+            );
+            continue;
+          }
+
+          if (
+            effectiveConnectionType === "ssh" &&
+            hostData.authType === "password" &&
+            !isNonEmptyString(hostData.password)
+          ) {
+            results.failed++;
+            results.errors.push(
+              `Host ${i + 1}: Password required for password authentication`,
+            );
+            continue;
+          }
+
+          if (
+            effectiveConnectionType === "ssh" &&
+            hostData.authType === "key" &&
+            !isNonEmptyString(hostData.key)
+          ) {
+            results.failed++;
+            results.errors.push(
+              `Host ${i + 1}: Key required for key authentication`,
+            );
+            continue;
+          }
+
+          if (
+            effectiveConnectionType === "ssh" &&
+            hostData.authType === "credential" &&
+            !hostData.credentialId
+          ) {
+            results.failed++;
+            results.errors.push(
+              `Host ${i + 1}: credentialId required for credential authentication`,
+            );
+            continue;
+          }
+
+          if (
+            effectiveConnectionType === "ssh" &&
+            hostData.authType === "credential" &&
+            hostData.credentialId
+          ) {
+            const credentialRepository = createCurrentCredentialRepository();
+            const cred = await credentialRepository.findByIdForUser(
+              userId,
+              hostData.credentialId,
+            );
+
+            if (!cred) {
+              const fallback = await credentialRepository.listByUserId(userId);
+
+              if (fallback.length > 0) {
+                hostData.credentialId = fallback[0].id;
+              } else if (isNonEmptyString(hostData.key)) {
+                hostData.authType = "key";
+                hostData.credentialId = undefined;
+              } else if (isNonEmptyString(hostData.password)) {
+                hostData.authType = "password";
+                hostData.credentialId = undefined;
+              } else {
+                results.failed++;
+                results.errors.push(
+                  `Host ${i + 1}: credentialId ${hostData.credentialId} not found and no fallback credential available`,
+                );
+                continue;
+              }
+            }
+          }
+
+          const sshDataObj: Record<string, unknown> = {
+            userId: userId,
+            connectionType: effectiveConnectionType,
+            name: hostData.name || `${hostData.username || ""}@${hostData.ip}`,
+            folder: hostData.folder || "Default",
+            tags: Array.isArray(hostData.tags) ? hostData.tags.join(",") : "",
+            ip: hostData.ip,
+            port: hostData.port,
+            username: hostData.username || null,
+            pin: hostData.pin || false,
+            enableTerminal: hostData.enableTerminal !== false,
+            enableTunnel: hostData.enableTunnel !== false,
+            enableFileManager: hostData.enableFileManager !== false,
+            enableDocker: hostData.enableDocker || false,
+            enableProxmox: hostData.enableProxmox || false,
+            enableTmuxMonitor: hostData.enableTmuxMonitor || false,
+            showTerminalInSidebar: hostData.showTerminalInSidebar ? 1 : 0,
+            showFileManagerInSidebar: hostData.showFileManagerInSidebar ? 1 : 0,
+            showTunnelInSidebar: hostData.showTunnelInSidebar ? 1 : 0,
+            showDockerInSidebar: hostData.showDockerInSidebar ? 1 : 0,
+            showServerStatsInSidebar: hostData.showServerStatsInSidebar ? 1 : 0,
+            defaultPath: hostData.defaultPath || "/",
+            sudoPassword: hostData.sudoPassword || null,
+            tunnelConnections: hostData.tunnelConnections
+              ? JSON.stringify(hostData.tunnelConnections)
+              : "[]",
+            jumpHosts: hostData.jumpHosts
+              ? JSON.stringify(hostData.jumpHosts)
+              : null,
+            quickActions: hostData.quickActions
+              ? JSON.stringify(hostData.quickActions)
+              : null,
+            statsConfig: hostData.statsConfig
+              ? JSON.stringify(hostData.statsConfig)
+              : null,
+            dockerConfig: hostData.dockerConfig
+              ? JSON.stringify(hostData.dockerConfig)
+              : null,
+            proxmoxConfig: hostData.proxmoxConfig
+              ? JSON.stringify(hostData.proxmoxConfig)
+              : null,
+            terminalConfig: hostData.terminalConfig
+              ? JSON.stringify(hostData.terminalConfig)
+              : null,
+            forceKeyboardInteractive: hostData.forceKeyboardInteractive
+              ? "true"
+              : "false",
+            notes: hostData.notes || null,
+            useSocks5: hostData.useSocks5 ? 1 : 0,
+            socks5Host: hostData.socks5Host || null,
+            socks5Port: hostData.socks5Port || null,
+            socks5Username: hostData.socks5Username || null,
+            socks5Password: hostData.socks5Password || null,
+            socks5ProxyChain: hostData.socks5ProxyChain
+              ? JSON.stringify(hostData.socks5ProxyChain)
+              : null,
+            portKnockSequence: serializePortKnockSequence(
+              hostData.portKnockSequence,
+            ),
+            overrideCredentialUsername: hostData.overrideCredentialUsername
+              ? 1
+              : 0,
+            enableSsh: hostData.enableSsh ?? effectiveConnectionType === "ssh",
+            enableRdp: hostData.enableRdp ?? false,
+            enableVnc: hostData.enableVnc ?? false,
+            enableTelnet: hostData.enableTelnet ?? false,
+            updatedAt: new Date().toISOString(),
+          };
+
+          if (effectiveConnectionType !== "ssh") {
+            sshDataObj.password = hostData.password || null;
+            sshDataObj.authType = "password";
+            sshDataObj.credentialId = null;
+            sshDataObj.key = null;
+            sshDataObj.keyPassword = null;
+            sshDataObj.keyType = null;
+            sshDataObj.rdpUser = hostData.rdpUser || null;
+            sshDataObj.rdpPassword = hostData.rdpPassword || null;
+            sshDataObj.rdpDomain = hostData.rdpDomain || null;
+            sshDataObj.rdpSecurity = hostData.rdpSecurity || null;
+            sshDataObj.rdpIgnoreCert = hostData.rdpIgnoreCert ? 1 : 0;
+            sshDataObj.rdpPort = hostData.rdpPort || 3389;
+            sshDataObj.vncUser = hostData.vncUser || null;
+            sshDataObj.vncPassword = hostData.vncPassword || null;
+            sshDataObj.vncPort = hostData.vncPort || 5900;
+            sshDataObj.telnetUser = hostData.telnetUser || null;
+            sshDataObj.telnetPassword = hostData.telnetPassword || null;
+            sshDataObj.telnetPort = hostData.telnetPort || 23;
+            sshDataObj.enableRdp = hostData.enableRdp ? 1 : 0;
+            sshDataObj.enableVnc = hostData.enableVnc ? 1 : 0;
+            sshDataObj.enableTelnet = hostData.enableTelnet ? 1 : 0;
+            sshDataObj.guacamoleConfig = hostData.guacamoleConfig
+              ? JSON.stringify(hostData.guacamoleConfig)
+              : null;
+          } else {
+            sshDataObj.password =
+              hostData.authType === "password" ? hostData.password : null;
+            sshDataObj.authType = hostData.authType || "password";
+            sshDataObj.credentialId =
+              hostData.authType === "credential" ? hostData.credentialId : null;
+            sshDataObj.key = hostData.authType === "key" ? hostData.key : null;
+            sshDataObj.keyPassword =
+              hostData.authType === "key" ? hostData.keyPassword || null : null;
+            sshDataObj.keyType =
+              hostData.authType === "key" ? hostData.keyType || "auto" : null;
+            sshDataObj.domain = null;
+            sshDataObj.security = null;
+            sshDataObj.ignoreCert = 0;
+            sshDataObj.guacamoleConfig = null;
+          }
+
+          const lookupKey = `${hostData.ip}:${hostData.port}:${hostData.username}`;
+          const existing = existingHostMap?.get(lookupKey);
+
+          if (existing) {
+            if (!overwrite) {
+              results.skipped++;
+              results.matchedHostIds.push(existing.id);
+              continue;
+            }
+            const updatedHost = await hostRepository.updateEncryptedForUser(
+              userId,
+              existing.id,
+              sshDataObj,
+            );
+            if (!updatedHost) {
+              throw new Error("Host disappeared while importing");
+            }
+            results.updated++;
+            results.updatedHostIds.push(existing.id);
+          } else {
+            sshDataObj.createdAt = new Date().toISOString();
+            const createdHost = await hostRepository.createEncryptedForUser(
+              userId,
+              sshDataObj,
+            );
+            results.success++;
+            const createdHostId = Number(createdHost.id);
+            results.createdHostIds.push(createdHostId);
+            existingHostMap.set(lookupKey, { id: createdHostId });
+          }
+        } catch (error) {
+          results.failed++;
+          results.errors.push(
+            `Host ${i + 1}: ${error instanceof Error ? error.message : "Unknown error"}`,
+          );
+        }
+      }
+
+      res.json({
+        message: `Import completed: ${results.success} created, ${results.updated} updated, ${results.failed} failed`,
+        success: results.success,
+        updated: results.updated,
+        skipped: results.skipped,
+        failed: results.failed,
+        errors: results.errors,
+        createdHostIds: results.createdHostIds,
+        updatedHostIds: results.updatedHostIds,
+        matchedHostIds: results.matchedHostIds,
+      });
+    },
+  );
+
+  /**
+   * @openapi
+   * /host/ssh-config-import:
+   *   post:
+   *     summary: Import hosts from an OpenSSH config file
+   *     description: Parses an OpenSSH ~/.ssh/config file and imports the defined hosts.
+   *     tags:
+   *       - SSH
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - content
+   *             properties:
+   *               content:
+   *                 type: string
+   *                 description: Raw text content of the SSH config file.
+   *               overwrite:
+   *                 type: boolean
+   *     responses:
+   *       200:
+   *         description: Import completed.
+   *       400:
+   *         description: Invalid request body.
+   */
+  router.post(
+    "/ssh-config-import",
+    authenticateJWT,
+    async (req: Request, res: Response) => {
+      const userId = (req as AuthenticatedRequest).userId;
+      const { content, overwrite } = req.body;
+
+      if (!isNonEmptyString(content)) {
+        return res.status(400).json({
+          error: "content is required and must be a non-empty string",
+        });
+      }
+
+      let parsed: SSHConfigHost[];
+      try {
+        parsed = parseSSHConfig(content);
+      } catch {
+        return res
+          .status(400)
+          .json({ error: "Failed to parse SSH config file" });
+      }
+
+      if (parsed.length === 0) {
+        return res.status(400).json({
+          error: "No valid Host entries found in the SSH config file",
+        });
+      }
+
+      if (parsed.length > 100) {
+        return res
+          .status(400)
+          .json({ error: "Maximum 100 hosts allowed per import" });
+      }
+
+      const hostsToImport = parsed.map((h) => ({
+        name: h.name,
+        ip: h.hostname,
+        port: h.port ?? 22,
+        username: h.user,
+        authType: h.identityFile ? "key" : undefined,
+        connectionType: "ssh",
+        enableSsh: true,
+        ...(h.proxyJump
+          ? {
+              jumpHosts: [{ host: h.proxyJump, port: 22 }],
+            }
+          : {}),
+      }));
+
+      const results = {
+        success: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [] as string[],
+        createdHostIds: [] as number[],
+        updatedHostIds: [] as number[],
+        matchedHostIds: [] as number[],
+      };
+
+      const hostRepository = createCurrentHostRepository();
+      const allHosts =
+        await createCurrentHostResolutionRepository().findHostsByUserId(userId);
+      const existingHostMap = new Map<string, { id: number }>();
+      for (const host of allHosts) {
+        const key = `${host.ip}:${host.port}:${host.username}`;
+        existingHostMap.set(key, { id: host.id as number });
+      }
+
+      for (let i = 0; i < hostsToImport.length; i++) {
+        const hostData = normalizeImportedHost(
+          hostsToImport[i] as Record<string, unknown>,
+        );
+
+        try {
+          if (!isNonEmptyString(hostData.ip) || !isValidPort(hostData.port)) {
+            results.failed++;
+            results.errors.push(
+              `Host "${parsed[i].name}": Missing required fields (HostName, Port)`,
+            );
+            continue;
+          }
+
+          const sshDataObj: Record<string, unknown> = {
+            userId,
+            connectionType: "ssh",
+            name: hostData.name || hostData.ip,
+            folder: "Default",
+            tags: "",
+            ip: hostData.ip,
+            port: hostData.port,
+            username: hostData.username || null,
+            authType: hostData.authType || "none",
+            password: null,
+            key: null,
+            keyPassword: null,
+            keyType: null,
+            credentialId: null,
+            pin: false,
+            enableTerminal: true,
+            enableTunnel: true,
+            enableFileManager: true,
+            enableDocker: false,
+            enableProxmox: false,
+            enableTmuxMonitor: false,
+            showTerminalInSidebar: 0,
+            showFileManagerInSidebar: 0,
+            showTunnelInSidebar: 0,
+            showDockerInSidebar: 0,
+            showServerStatsInSidebar: 0,
+            defaultPath: "/",
+            sudoPassword: null,
+            tunnelConnections: "[]",
+            jumpHosts: hostData.jumpHosts
+              ? JSON.stringify(hostData.jumpHosts)
+              : null,
+            quickActions: null,
+            statsConfig: null,
+            dockerConfig: null,
+            proxmoxConfig: null,
+            terminalConfig: null,
+            forceKeyboardInteractive: "false",
+            notes: null,
+            useSocks5: 0,
+            socks5Host: null,
+            socks5Port: null,
+            socks5Username: null,
+            socks5Password: null,
+            socks5ProxyChain: null,
+            portKnockSequence: null,
+            overrideCredentialUsername: 0,
+            enableSsh: true,
+            enableRdp: false,
+            enableVnc: false,
+            enableTelnet: false,
+            updatedAt: new Date().toISOString(),
+          };
+
+          const lookupKey = `${hostData.ip}:${hostData.port}:${hostData.username}`;
+          const existing = existingHostMap?.get(lookupKey);
+
+          if (existing) {
+            if (!overwrite) {
+              results.skipped++;
+              results.matchedHostIds.push(existing.id);
+              continue;
+            }
+            const updatedHost = await hostRepository.updateEncryptedForUser(
+              userId,
+              existing.id,
+              sshDataObj,
+            );
+            if (!updatedHost) {
+              throw new Error("Host disappeared while importing");
+            }
+            results.updated++;
+            results.updatedHostIds.push(existing.id);
+          } else {
+            sshDataObj.createdAt = new Date().toISOString();
+            const createdHost = await hostRepository.createEncryptedForUser(
+              userId,
+              sshDataObj,
+            );
+            results.success++;
+            const createdHostId = Number(createdHost.id);
+            results.createdHostIds.push(createdHostId);
+            existingHostMap.set(lookupKey, { id: createdHostId });
+          }
+        } catch (error) {
+          results.failed++;
+          results.errors.push(
+            `Host "${parsed[i].name}": ${error instanceof Error ? error.message : "Unknown error"}`,
+          );
+        }
+      }
+
+      res.json({
+        message: `Import completed: ${results.success} created, ${results.updated} updated, ${results.failed} failed`,
+        success: results.success,
+        updated: results.updated,
+        skipped: results.skipped,
+        failed: results.failed,
+        errors: results.errors,
+        createdHostIds: results.createdHostIds,
+        updatedHostIds: results.updatedHostIds,
+        matchedHostIds: results.matchedHostIds,
+      });
+    },
+  );
+}
