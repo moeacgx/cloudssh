@@ -1,106 +1,107 @@
-# Contributing
+# 为 CloudSSH 贡献
 
-## Prerequisites
+感谢你参与 CloudSSH。Issue 和 Pull Request 可以使用中文或英文。提交代码前请先
+搜索现有 Issue，避免重复实现；涉及权限、凭据、数据库或更新链路的较大改动，建议
+先开 Issue 说明设计与兼容方案。
 
-- [Node.js](https://nodejs.org/en/download/) (built with v24)
-- [NPM](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
-- [Git](https://git-scm.com/downloads)
+## 开发环境
 
-## Installation
+- Node.js 24（仓库通过 `.nvmrc` 固定；最低支持 22.12）
+- npm 11 或更高版本
+- Git
+- 可选：Docker、临时 OpenSSH 与 `tmux`，用于集成测试
 
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/Termix-SSH/Termix
-   ```
-2. Install the dependencies:
-   ```sh
-   npm install
-   ```
+不要在开发环境、测试、Issue、日志或截图中使用生产 SSH 凭据、设备私钥、平台
+Token、数据库、录像或根密钥。
 
-## Running the development server
-
-Run the following commands:
+## 安装与启动
 
 ```sh
-npm run dev
-npm run dev:backend
+git clone https://github.com/moeacgx/cloudssh.git
+cd cloudssh
+npm ci
 ```
 
-This will start the backend and the frontend Vite server. You can access Termix by going to `http://localhost:5174/`.
+分别启动后端和前端开发服务器：
 
-## Contributing
+```sh
+npm run dev:backend
+npm run dev
+```
 
-1. **Fork the repository**: Click the "Fork" button at the top right of
-   the [repository page](https://github.com/Termix-SSH/Termix).
-2. **Create a new branch**:
+前端默认地址为 <http://localhost:5173/>。Docker 部署、根密钥、备份与隔离恢复请
+参阅 [`docs/CLOUDSSH.md`](docs/CLOUDSSH.md)。
+
+## 提交流程
+
+1. 在 [CloudSSH 仓库](https://github.com/moeacgx/cloudssh) 创建 Fork。
+2. 从最新 `main` 创建职责单一的分支，例如：
+
    ```sh
-   git checkout -b feature/my-new-feature
+   git checkout -b feat/project-session-search
    ```
-3. **Make your changes**: Implement your feature, fix, or improvement.
-4. **Commit your changes**:
+
+3. 完成代码、测试和必要文档。
+4. 使用 Conventional Commits，例如：
+
    ```sh
-   git commit -m "Feature request my new feature"
+   git commit -m "feat(session): add project session search"
    ```
-5. **Push to your fork**:
-   ```sh
-   git push origin feature/my-feature-request
-   ```
-6. **Open a pull request**: Go to the original repository and create a PR with a clear description.
 
-## Guidelines
+5. 推送分支并向 `moeacgx/cloudssh:main` 创建 Pull Request。
 
-- Follow the existing code style. Use Tailwind CSS with shadcn components.
-- Use the below color scheme with the respective CSS variable placed in the `className` of a div/component.
-- Place all API routes in the `main-axios.ts` file. Updating the `openapi.json` is unneeded.
-- Include meaningful commit messages.
-- Link related issues when applicable.
-- `MobileApp.tsx` renders when the users screen width is less than 768px, otherwise it loads the usual `DesktopApp.tsx`.
+除非维护者明确要求，不要在普通 PR 中修改版本号、创建发布标签或提交构建产物。
 
-## Color Scheme
+## 提交前检查
 
-### Background Colors
+行为变更应增加或更新测试。先运行相关定向测试，提交 PR 前至少完成：
 
-| CSS Variable                  | Color Value | Usage                       | Description                              |
-| ----------------------------- | ----------- | --------------------------- | ---------------------------------------- |
-| `--color-dark-bg`             | `#18181b`   | Main dark background        | Primary dark background color            |
-| `--color-dark-bg-darker`      | `#0e0e10`   | Darker backgrounds          | Darker variant for panels and containers |
-| `--color-dark-bg-darkest`     | `#09090b`   | Darkest backgrounds         | Darkest background (terminal)            |
-| `--color-dark-bg-light`       | `#141416`   | Light dark backgrounds      | Lighter variant of dark background       |
-| `--color-dark-bg-very-light`  | `#101014`   | Very light dark backgrounds | Very light variant of dark background    |
-| `--color-dark-bg-panel`       | `#1b1b1e`   | Panel backgrounds           | Background for panels and cards          |
-| `--color-dark-bg-panel-hover` | `#232327`   | Panel hover states          | Background for panels on hover           |
+```sh
+npm run type-check
+npm run lint
+npm run format:check
+npm test
+npm run test:skill
+npm run build
+```
 
-### Element-Specific Backgrounds
+如果改动涉及 Docker、Nginx、备份、恢复或 Release，还应运行对应脚本测试，并在 PR
+中写明实际验证环境、结果和回滚方式。
 
-| CSS Variable             | Color Value | Usage              | Description                                   |
-| ------------------------ | ----------- | ------------------ | --------------------------------------------- |
-| `--color-dark-bg-input`  | `#222225`   | Input fields       | Background for input fields and form elements |
-| `--color-dark-bg-button` | `#23232a`   | Button backgrounds | Background for buttons and clickable elements |
-| `--color-dark-bg-active` | `#1d1d1f`   | Active states      | Background for active/selected elements       |
-| `--color-dark-bg-header` | `#131316`   | Header backgrounds | Background for headers and navigation bars    |
+## 工程与安全边界
 
-### Border Colors
+- 复用现有 React、Tailwind、shadcn 和 Lucide 组件，不引入平行设计体系。
+- 保持个人空间与团队项目隔离；任何项目级查询都不能把 `personal` 等前端哨兵值
+  当作真实项目 ID 发送给后端。
+- 密码、私钥、设备私钥、完整 Token 和根密钥不得进入 API 响应、日志、审计索引、
+  录像索引或错误信息。
+- 修改凭据加密、AAD、MFA、WebAuthn、设备签名、nonce 或租约逻辑时，必须覆盖失败
+  路径、重放、越权和旧数据兼容测试。
+- 数据库迁移必须保持 SQLite 回退边界，说明备份、恢复和回滚影响；不得静默删除或
+  重写用户数据。
+- 终端、SFTP、分屏和侧栏切换不得无故重新挂载 xterm 或关闭持续会话。
+- Agent 接入继续使用设备码、网页审批和 Ed25519 签名；不要重新引入长期明文 Token、
+  SSH 凭据下发或逐次审批。
+- 容器内更新不得挂载 Docker Socket，也不要引入独立 updater sidecar。镜像更新由
+  宿主机完成，二进制更新使用公开且不可变的 GitHub Release。
 
-| CSS Variable                 | Color Value | Usage           | Description                              |
-| ---------------------------- | ----------- | --------------- | ---------------------------------------- |
-| `--color-dark-border`        | `#303032`   | Default borders | Standard border color                    |
-| `--color-dark-border-active` | `#2d2d30`   | Active borders  | Border color for active elements         |
-| `--color-dark-border-hover`  | `#434345`   | Hover borders   | Border color on hover states             |
-| `--color-dark-border-light`  | `#5a5a5d`   | Light borders   | Lighter border color for subtle elements |
-| `--color-dark-border-medium` | `#373739`   | Medium borders  | Medium weight border color               |
-| `--color-dark-border-panel`  | `#222224`   | Panel borders   | Border color for panels and cards        |
+## Pull Request 要求
 
-### Interactive States
+PR 描述应包含：
 
-| CSS Variable             | Color Value | Usage             | Description                                   |
-| ------------------------ | ----------- | ----------------- | --------------------------------------------- |
-| `--color-dark-hover`     | `#2d2d30`   | Hover states      | Background color for hover effects            |
-| `--color-dark-active`    | `#2a2a2c`   | Active states     | Background color for active elements          |
-| `--color-dark-pressed`   | `#1a1a1c`   | Pressed states    | Background color for pressed/clicked elements |
-| `--color-dark-hover-alt` | `#2a2a2d`   | Alternative hover | Alternative hover state color                 |
+- 问题、方案和用户可见影响；
+- 已执行的测试及结果；
+- UI 改动的桌面与手机截图；
+- 数据库、配置、权限或部署变更的兼容与回滚说明；
+- 关联 Issue，以及需要同步更新的 README、Skill 或运维文档。
 
-## Issues
+请保持改动聚焦，不要夹带无关重构、格式化全仓库或上游元数据变更。
 
-Bug reports and feature requests belong in the
-[CloudSSH issue tracker](https://github.com/moeacgx/cloudssh/issues). Do not include
-passwords, private keys, tokens, database files, or other production secrets.
+## 问题与安全报告
+
+普通缺陷和功能建议请使用
+[CloudSSH Issues](https://github.com/moeacgx/cloudssh/issues)。安全漏洞不要公开提交
+Issue，请按 [`SECURITY.md`](SECURITY.md) 使用 GitHub 私有安全公告。
+
+提交贡献即表示你同意相关内容按仓库的 [Apache License 2.0](LICENSE) 发布，并保留
+[`NOTICE-CLOUDSSH.md`](NOTICE-CLOUDSSH.md) 中的上游声明。

@@ -1,5 +1,25 @@
-# Security Policy
+# 安全策略
 
-## Reporting a Vulnerability
+## 支持范围
 
-Please report any vulnerabilities to [GitHub Security](https://github.com/Termix-SSH/Termix/security/advisories).
+CloudSSH 当前处于快速迭代阶段，只为最新正式版本提供安全修复。报告问题前请先确认
+复现环境的版本、镜像标签和部署方式。
+
+## 私下报告漏洞
+
+请通过
+[GitHub 私有安全公告](https://github.com/moeacgx/cloudssh/security/advisories/new)
+报告漏洞，不要创建公开 Issue，也不要在讨论、日志或截图中公开利用细节。
+
+报告中请尽量包含：
+
+- 受影响版本、部署拓扑和必要配置；
+- 最小复现步骤、实际影响和攻击前置条件；
+- 已脱敏的请求、响应或日志；
+- 可行的缓解或修复建议。
+
+严禁提交真实密码、SSH 私钥、Agent 设备私钥、完整 Token、数据库、录像、根密钥或
+其他生产秘密。需要样本时请使用临时测试数据。
+
+维护者会尽快确认报告、评估影响并协调修复与披露。在修复版本发布前，请不要公开
+漏洞细节或可直接使用的利用代码。
