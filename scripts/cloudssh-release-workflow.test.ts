@@ -26,6 +26,7 @@ describe("CloudSSH 正式发版工作流", () => {
     expect(workflow).toContain("运行包包含未审核的符号链接");
     expect(workflow).toContain("extractRuntimeArchive");
     expect(workflow).toContain("cloudssh-entrypoint-version-test.sh");
+    expect(workflow).toContain('docker image rm "$SOURCE"');
     expect(workflow).toContain('--modules-abi "$modules_abi"');
     expect(workflow).toContain('--libc "$libc"');
     expect(workflow).toContain('--libc-version "$libc_version"');

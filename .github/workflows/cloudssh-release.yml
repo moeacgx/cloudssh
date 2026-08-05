@@ -239,6 +239,7 @@ jobs:
             else
               asset_arm64="$asset_value"
             fi
+            docker image rm "$SOURCE" >/dev/null
           done
 
           IFS=: read -r node_major modules_abi libc libc_version <<< "$runtime_compatibility"
