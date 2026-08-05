@@ -40,12 +40,12 @@ jobs:
           exit 1
 
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
 
@@ -86,14 +86,14 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout dev branch
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.prep.outputs.dev_branch }}
           fetch-depth: 0
           token: ${{ secrets.GHCR_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -138,14 +138,14 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout dev branch
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.prep.outputs.dev_branch }}
           fetch-depth: 0
           token: ${{ secrets.GHCR_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
 
@@ -221,12 +221,12 @@ jobs:
       build_ref: ${{ steps.merge.outputs.build_ref }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
 
@@ -299,13 +299,13 @@ jobs:
       contents: write
     steps:
       - name: Checkout main
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: main
           fetch-depth: 1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
 
@@ -374,7 +374,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout main
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: main
           fetch-depth: 1
@@ -414,14 +414,14 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout Termix
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.merge-to-main.outputs.build_ref }}
           fetch-depth: 1
           path: termix
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: "termix/.nvmrc"
           cache: "npm"
@@ -434,7 +434,7 @@ jobs:
           npm run generate:openapi
 
       - name: Checkout Docs repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           repository: Termix-SSH/Docs
           ref: main
@@ -508,13 +508,13 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout main
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: main
           fetch-depth: 1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
 
@@ -539,7 +539,7 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
 

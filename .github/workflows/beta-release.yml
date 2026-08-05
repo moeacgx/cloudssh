@@ -24,12 +24,12 @@ jobs:
       sha: ${{ steps.dev.outputs.sha }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
 
@@ -62,13 +62,13 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout dev branch
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.prep.outputs.dev_branch }}
           fetch-depth: 1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -99,7 +99,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout dev branch
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.prep.outputs.dev_branch }}
           fetch-depth: 0
