@@ -5,7 +5,7 @@ import express, {
 } from "express";
 import type { AuthenticatedRequest, GitHubRelease } from "../../types/index.js";
 import { createCurrentUserRepository } from "../database/repositories/factory.js";
-import { requireRecentInteractiveMfa } from "../utils/admin-sensitive-access.js";
+import { requireSecureRecentInteractiveMfa } from "../utils/admin-sensitive-access.js";
 import {
   getRequestMeta,
   logAudit,
@@ -144,7 +144,7 @@ async function actorUsername(userId: string): Promise<string> {
 }
 
 function requireStepUp(req: Request, res: Response): boolean {
-  return requireRecentInteractiveMfa(req as AuthenticatedRequest, res);
+  return requireSecureRecentInteractiveMfa(req as AuthenticatedRequest, res);
 }
 
 function requestIdempotencyKey(req: Request, res: Response): string | null {

@@ -46,9 +46,10 @@ import { createUpdateRoutes } from "./routes.js";
 
 let server: http.Server | undefined;
 
-async function listen(options?: { recentMfa?: boolean }) {
+async function listen(options?: { recentMfa?: boolean; production?: boolean }) {
   const app = express();
   app.use(express.json());
+  app.set("trust proxy", 1);
   app.use(
     "/admin/updates",
     createUpdateRoutes({
@@ -97,6 +98,9 @@ async function listen(options?: { recentMfa?: boolean }) {
       },
     }),
   );
+  if (options?.production) {
+    vi.stubEnv("NODE_ENV", "production");
+  }
   server = http.createServer(app);
   await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -190,6 +194,7 @@ afterEach(async () => {
     server!.close((error) => (error ? reject(error) : resolve())),
   );
   server = undefined;
+  vi.unstubAllEnvs();
 });
 
 describe("管理员在线更新路由", () => {
@@ -254,6 +259,24 @@ describe("管理员在线更新路由", () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toMatchObject({
       code: "MFA_STEP_UP_REQUIRED",
+    });
+    expect(mocks.startUpdate).not.toHaveBeenCalled();
+  });
+
+  it("生产环境的明文 HTTP 不得执行更新写操作", async () => {
+    const base = await listen({ recentMfa: true, production: true });
+    const response = await requestLocal(`${base}/admin/updates/apply`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": "198.51.100.10",
+        "x-forwarded-proto": "http",
+      },
+      body: JSON.stringify({ targetVersion: "2.6.0-cloudssh.17" }),
+    });
+    expect(response.status).toBe(426);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "HTTPS_REQUIRED",
     });
     expect(mocks.startUpdate).not.toHaveBeenCalled();
   });

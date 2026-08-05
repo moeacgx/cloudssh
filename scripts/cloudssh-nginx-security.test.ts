@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 
 const configurations = ["docker/nginx.conf", "docker/nginx-https.conf"];
 
+function extractLocation(configuration: string, marker: string): string {
+  const start = configuration.indexOf(marker);
+  if (start < 0) return "";
+  const end = configuration.indexOf("\\n        }", start);
+  return end < 0 ? configuration.slice(start) : configuration.slice(start, end);
+}
+
 describe.each(configurations)("%s Agent 入口安全约束", (filePath) => {
   const configuration = readFileSync(filePath, "utf8");
 
@@ -53,8 +60,20 @@ describe.each(configurations)("%s Agent 入口安全约束", (filePath) => {
   });
 
   it("把管理员更新接口转发到控制面并禁止缓存", () => {
-    expect(configuration).toMatch(
-      /location ~ \^\/admin\/updates\(\/\.\*\)\?\$ \{[\s\S]*?proxy_pass http:\/\/127\.0\.0\.1:30001;[\s\S]*?add_header Cache-Control "private, no-store" always;/,
+    const location = extractLocation(
+      configuration,
+      "location ~ ^/admin/updates(/.*)?$ {",
+    );
+    expect(location).not.toBe("");
+    expect(location).toContain("proxy_pass http://127.0.0.1:30001;");
+    expect(location).toContain(
+      "proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;",
+    );
+    expect(location).toContain(
+      "proxy_set_header X-Forwarded-For $remote_addr;",
+    );
+    expect(location).toContain(
+      'add_header Cache-Control "private, no-store" always;',
     );
   });
 });

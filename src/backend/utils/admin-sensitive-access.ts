@@ -46,7 +46,7 @@ export function requireSecureRecentInteractiveMfa(
 ): boolean {
   if (!isAdministrativeTransportAllowed(req)) {
     res.status(426).json({
-      error: "管理员明文凭据操作必须使用 HTTPS",
+      error: "管理员敏感操作必须使用 HTTPS",
       code: "HTTPS_REQUIRED",
     });
     return false;
