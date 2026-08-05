@@ -139,7 +139,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.CLOUDSSH_GHCR_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: 构建并推送 CloudSSH 暂存镜像
         id: cloudssh
