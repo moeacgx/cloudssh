@@ -26,15 +26,19 @@ export function AdminPanelAgentSection({
   const [settings, setSettings] = useState<PanelAgentSettings | null>(null);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState<PanelAgentModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
   async function load() {
     setLoading(true);
+    setLoadError(false);
     try {
       setSettings(await getPanelAgentSettings());
     } catch {
+      setSettings(null);
+      setLoadError(true);
       toast.error(t("admin.panelAgentLoadFailed"));
     } finally {
       setLoading(false);
@@ -42,8 +46,9 @@ export function AdminPanelAgentSection({
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (!open || settings || loading) return;
+    void load();
+  }, [open]);
 
   function update(partial: Partial<PanelAgentSettings>) {
     setSettings((prev) => (prev ? { ...prev, ...partial } : prev));
@@ -123,6 +128,25 @@ export function AdminPanelAgentSection({
         {loading && (
           <div className="text-xs text-muted-foreground">
             {t("common.loading")}
+          </div>
+        )}
+        {!loading && !settings && loadError && (
+          <div className="space-y-2 border border-amber-500/40 bg-amber-500/5 p-3">
+            <div className="text-xs font-semibold text-foreground">
+              {t("admin.panelAgentUnavailable")}
+            </div>
+            <div className="text-[11px] leading-5 text-muted-foreground">
+              {t("admin.panelAgentUnavailableDesc")}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void load()}
+            >
+              <RefreshCw className="size-3" />
+              {t("common.retry")}
+            </Button>
           </div>
         )}
         {settings && (

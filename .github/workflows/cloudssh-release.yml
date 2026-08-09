@@ -258,7 +258,7 @@ jobs:
           sha256sum cloudssh-self-update.json > cloudssh-self-update.json.sha256
           echo "manifest_sha256=$(sha256sum cloudssh-self-update.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: 从固定摘要镜像导出 amd64 离线包
+      - name: 从固定摘要镜像导出多架构离线包
         shell: bash
         env:
           VERSION: ${{ needs.verify.outputs.version }}
@@ -267,15 +267,20 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE="$CLOUDSSH_IMAGE@$DIGEST"
-          LOCAL_TAG="cloudssh-termix:$VERSION"
-          ARCHIVE="cloudssh-image-$VERSION-linux-amd64.tar.gz"
-          docker pull --platform linux/amd64 "$SOURCE"
-          docker tag "$SOURCE" "$LOCAL_TAG"
-          [[ "$(docker image inspect "$LOCAL_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
-          [[ "$(docker image inspect "$LOCAL_TAG" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" == "$VERSION" ]]
-          docker image inspect "$LOCAL_TAG" --format '{{.Id}}' > "$ARCHIVE.id"
-          docker save "$LOCAL_TAG" | gzip -n -9 > "$ARCHIVE"
-          sha256sum "$ARCHIVE" "$ARCHIVE.id" > "$ARCHIVE.sha256"
+          for pair in amd64:amd64 arm64:arm64; do
+            docker_arch="${pair%%:*}"
+            runtime_arch="${pair##*:}"
+            local_tag="cloudssh-termix:$VERSION"
+            archive="cloudssh-image-$VERSION-linux-$runtime_arch.tar.gz"
+            docker pull --platform "linux/$docker_arch" "$SOURCE"
+            docker tag "$SOURCE" "$local_tag"
+            [[ "$(docker image inspect "$local_tag" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
+            [[ "$(docker image inspect "$local_tag" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" == "$VERSION" ]]
+            docker image inspect "$local_tag" --format '{{.Id}}' > "$archive.id"
+            docker save "$local_tag" | gzip -n -9 > "$archive"
+            sha256sum "$archive" "$archive.id" > "$archive.sha256"
+            docker image rm "$local_tag" >/dev/null || true
+          done
 
       - name: 生成固定摘要发布清单
         env:
@@ -345,9 +350,9 @@ jobs:
             cloudssh-self-update.json.sha256 \
             cloudssh-runtime-$VERSION-linux-*.tar.gz \
             cloudssh-runtime-$VERSION-linux-*.tar.gz.sha256 \
-            cloudssh-image-$VERSION-linux-amd64.tar.gz \
-            cloudssh-image-$VERSION-linux-amd64.tar.gz.id \
-            cloudssh-image-$VERSION-linux-amd64.tar.gz.sha256 \
+            cloudssh-image-$VERSION-linux-*.tar.gz \
+            cloudssh-image-$VERSION-linux-*.tar.gz.id \
+            cloudssh-image-$VERSION-linux-*.tar.gz.sha256 \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
           VERIFY_DIR="$RUNNER_TEMP/cloudssh-release-assets"
@@ -366,7 +371,7 @@ jobs:
             sha256sum -c cloudssh-release.json.sha256 && \
             sha256sum -c cloudssh-self-update.json.sha256 && \
             for checksum in cloudssh-runtime-*.tar.gz.sha256; do sha256sum -c "$checksum"; done && \
-            sha256sum -c cloudssh-image-$VERSION-linux-amd64.tar.gz.sha256)
+            for checksum in cloudssh-image-$VERSION-linux-*.tar.gz.sha256; do sha256sum -c "$checksum"; done)
 
       - name: 锁定不可变发布标签
         env:

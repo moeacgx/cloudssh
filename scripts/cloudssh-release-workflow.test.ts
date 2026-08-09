@@ -136,12 +136,12 @@ describe("CloudSSH 正式发版工作流", () => {
     }
   });
 
-  it("正式发版在不可变 Release 前一次性上传离线镜像", async () => {
+  it("正式发版在不可变 Release 前一次性上传多架构离线镜像", async () => {
     const workflow = await readFile(
       ".github/workflows/cloudssh-release.yml",
       "utf8",
     );
-    const exportStep = workflow.indexOf("从固定摘要镜像导出 amd64 离线包");
+    const exportStep = workflow.indexOf("从固定摘要镜像导出多架构离线包");
     const uploadStep = workflow.indexOf("幂等上传并校验 Release 附件");
     const publishStep = workflow.indexOf(
       "发布已锁定且附件完整的 GitHub Release",
@@ -149,9 +149,11 @@ describe("CloudSSH 正式发版工作流", () => {
     expect(exportStep).toBeGreaterThan(0);
     expect(uploadStep).toBeGreaterThan(exportStep);
     expect(publishStep).toBeGreaterThan(uploadStep);
+    expect(workflow).toContain("for pair in amd64:amd64 arm64:arm64");
     expect(workflow).toContain(
-      "cloudssh-image-$VERSION-linux-amd64.tar.gz.sha256",
+      "cloudssh-image-$VERSION-linux-$runtime_arch.tar.gz",
     );
+    expect(workflow).toContain("cloudssh-image-$VERSION-linux-*.tar.gz.sha256");
     expect(workflow).toContain("Release 发布后未进入不可变状态");
   });
 

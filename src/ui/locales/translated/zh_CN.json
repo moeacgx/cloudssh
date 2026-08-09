@@ -3272,6 +3272,8 @@
     "panelAgentSaved": "面板 Agent 设置已保存",
     "panelAgentSaveFailed": "面板 Agent 设置保存失败",
     "panelAgentLoadFailed": "面板 Agent 设置加载失败",
+    "panelAgentUnavailable": "面板 Agent 设置暂不可用",
+    "panelAgentUnavailableDesc": "后端没有返回设置。更新完成后刷新页面；如果仍然出现，说明后端版本仍旧低于前端，或这次请求失败。",
     "panelAgentFetchModels": "拉取模型",
     "panelAgentFetchingModels": "拉取中...",
     "panelAgentModelSelectPlaceholder": "选择模型",

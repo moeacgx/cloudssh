@@ -64,7 +64,7 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 - `cloudssh-self-update.json` 与 `.sha256`；
 - `cloudssh-runtime-<version>-linux-amd64.tar.gz` 与 `.sha256`；
 - `cloudssh-runtime-<version>-linux-arm64.tar.gz` 与 `.sha256`。
-- `cloudssh-image-<version>-linux-amd64.tar.gz`、镜像 ID 与 `.sha256`。
+- `cloudssh-image-<version>-linux-<arch>.tar.gz`、镜像 ID 与 `.sha256`。
 
 总清单示例：
 
@@ -72,7 +72,7 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 {
   "schemaVersion": 3,
   "channel": "stable",
-  "version": "2.6.0-cloudssh.33",
+  "version": "2.6.0-cloudssh.34",
   "image": "ghcr.io/moeacgx/cloudssh",
   "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "revision": "0123456789abcdef0123456789abcdef01234567",

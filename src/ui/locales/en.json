@@ -3272,6 +3272,8 @@
     "panelAgentSaved": "Panel Agent settings saved",
     "panelAgentSaveFailed": "Failed to save Panel Agent settings",
     "panelAgentLoadFailed": "Failed to load Panel Agent settings",
+    "panelAgentUnavailable": "Panel Agent settings are unavailable",
+    "panelAgentUnavailableDesc": "The backend route did not return settings. Refresh after the update completes; if this remains, the backend is still older than the frontend or the request failed.",
     "panelAgentFetchModels": "Fetch models",
     "panelAgentFetchingModels": "Fetching...",
     "panelAgentModelSelectPlaceholder": "Select a model",
