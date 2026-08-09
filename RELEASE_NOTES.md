@@ -44,10 +44,12 @@ https://youtu.be/g0QjNdV3YYY
 - Added the ability to make folders of hosts available to specific users instead of everyone recreating them.
 - Reworked SSH credentials to support both a password and an SSH key on the same credential, with an option to auto fill the password when prompted.
 - Added a custom group claim option for OIDC login, useful for identity providers like Zitadel that don't use a plain "groups" claim.
+
 <!-- /UPDATE_LOG -->
 
 <!-- BUG_FIXES -->
 
+- Fixed macOS Agent login failing to save the generated Ed25519 device private key in Keychain by storing a short PKCS#8 DER base64 value, preserving old PEM reads, and verifying the write to catch truncation.
 - Fixed every saved password SSH connection failing in the web terminal because the legacy database value `"false"` for forced keyboard-interactive authentication was treated as enabled and prevented the password from reaching ssh2.
 - Fixed web connections rewriting managed project credentials from stale legacy host snapshots; project credentials are now read-only during connection and synchronized only by explicit host or credential mutations.
 - Fixed older hosts failing every SSH connection with `source.portKnockSequence?.map is not a function` when port-knock data was stored as JSON text or malformed legacy data.
@@ -85,4 +87,5 @@ https://youtu.be/g0QjNdV3YYY
 - Remove chacha20-poly1305 without native ssh2 binding.
 - Corrected SSRF blocklist from false-positive on all IPv4.
 - Fixed terminal background image incorrectly displaying.
+
 <!-- /BUG_FIXES -->

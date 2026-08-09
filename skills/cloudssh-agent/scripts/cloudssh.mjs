@@ -3,6 +3,7 @@ import {
   createHash,
   createHmac,
   createPublicKey,
+  createPrivateKey,
   generateKeyPairSync,
   randomBytes,
   randomUUID,
@@ -27,6 +28,8 @@ import { pathToFileURL } from "node:url";
 
 const SERVICE = "site.termix.cloudssh";
 const DEFAULT_KEY_ID = "default-agent-device-key";
+const MACOS_KEYCHAIN_PKCS8_DER_PREFIX = "pkcs8-der:";
+const MACOS_KEYCHAIN_MAX_INTERACTIVE_SECRET_LENGTH = 128;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TERMINAL_JOB_STATES = new Set([
@@ -602,6 +605,49 @@ function run(command, args, stdin = "", options = {}) {
 function encodedPowerShell(script) {
   return Buffer.from(script, "utf16le").toString("base64");
 }
+function encodeMacOsKeychainSecret(secret) {
+  let key;
+  try {
+    key = createPrivateKey(secret);
+  } catch {
+    throw new Error("设备私钥格式无效");
+  }
+  const der = key.export({ type: "pkcs8", format: "der" });
+  const stored = `${MACOS_KEYCHAIN_PKCS8_DER_PREFIX}${Buffer.from(der).toString("base64")}`;
+  if (stored.length > MACOS_KEYCHAIN_MAX_INTERACTIVE_SECRET_LENGTH) {
+    throw new Error("macOS 钥匙串设备私钥编码超过安全写入长度");
+  }
+  return {
+    stored,
+    pem: key.export({ type: "pkcs8", format: "pem" }).toString(),
+  };
+}
+
+function decodeMacOsKeychainSecret(value) {
+  const secret = value.replace(/[\r\n]+$/, "");
+  if (!secret.startsWith(MACOS_KEYCHAIN_PKCS8_DER_PREFIX)) return secret;
+
+  const payload = secret.slice(MACOS_KEYCHAIN_PKCS8_DER_PREFIX.length);
+  const validBase64 =
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      payload,
+    );
+  if (!validBase64) {
+    throw new Error("macOS 钥匙串中的设备私钥编码无效");
+  }
+
+  try {
+    return createPrivateKey({
+      key: Buffer.from(payload, "base64"),
+      type: "pkcs8",
+      format: "der",
+    })
+      .export({ type: "pkcs8", format: "pem" })
+      .toString();
+  } catch {
+    throw new Error("macOS 钥匙串中的设备私钥编码无效");
+  }
+}
 
 const PROTECT_SCRIPT = [
   "$ErrorActionPreference='Stop'",
@@ -701,19 +747,34 @@ export class MacOsKeychainSecretStore {
     ]);
     if (result.code === 44) return null;
     if (result.code !== 0) throw new Error("无法读取 macOS 钥匙串中的设备私钥");
-    return result.stdout.replace(/[\r\n]+$/, "");
+    return decodeMacOsKeychainSecret(result.stdout);
   }
 
   async set(secret, keyId = DEFAULT_KEY_ID) {
     if (!secret.trim()) throw new Error("设备私钥不能为空");
     const account = normalizeKeyId(keyId);
+    const encoded = encodeMacOsKeychainSecret(secret);
     const result = await this.execute(
       "security",
       ["add-generic-password", "-U", "-a", account, "-s", SERVICE, "-w"],
-      `${secret}\n${secret}\n`,
+      `${encoded.stored}\n${encoded.stored}\n`,
       { detached: true },
     );
     if (result.code !== 0) throw new Error("无法写入 macOS 钥匙串");
+
+    let recovered;
+    try {
+      recovered = await this.get(keyId);
+    } catch (error) {
+      await this.delete(keyId).catch(() => undefined);
+      throw new Error(
+        `macOS 钥匙串写入后校验失败：${error?.message ?? "无法回读设备私钥"}`,
+      );
+    }
+    if (recovered !== encoded.pem) {
+      await this.delete(keyId).catch(() => undefined);
+      throw new Error("macOS 钥匙串写入后校验失败：回读内容与设备私钥不一致");
+    }
   }
 
   async delete(keyId = DEFAULT_KEY_ID) {

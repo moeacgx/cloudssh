@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  generateKeyPairSync,
+  randomUUID,
+} from "node:crypto";
 import {
   mkdtemp,
   readFile,
@@ -75,6 +80,11 @@ function testIdentity() {
     deviceId: "device-test",
     privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
   };
+}
+function privateKeyDerBase64(value) {
+  return createPrivateKey(value)
+    .export({ type: "pkcs8", format: "der" })
+    .toString("base64");
 }
 
 function pendingRequestInput(
@@ -1319,27 +1329,124 @@ test("Profile 写入和临时密钥清理同时失败时保留旧身份并排队
 
 test("macOS 与 Linux 密钥存储始终使用同一 UUID 槽", async () => {
   const keyId = randomUUID();
+  const privateKey = testIdentity().privateKey;
   for (const Store of [MacOsKeychainSecretStore, LinuxSecretServiceStore]) {
     const calls = [];
+    let storedSecret = "";
     const execute = async (command, args, stdin = "", options = {}) => {
       calls.push({ command, args, stdin, options });
-      return { code: 0, stdout: "private-key\n", stderr: "" };
+      if (command === "security") {
+        const action = args[0];
+        if (action === "add-generic-password") {
+          const [stored, confirmation, trailing] = stdin.split("\n");
+          assert.equal(stored, confirmation);
+          assert.equal(trailing, "");
+          storedSecret = stored;
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        if (action === "find-generic-password") {
+          return {
+            code: storedSecret ? 0 : 44,
+            stdout: storedSecret ? `${storedSecret}\n` : "",
+            stderr: "",
+          };
+        }
+        if (action === "delete-generic-password") {
+          storedSecret = "";
+          return { code: 0, stdout: "", stderr: "" };
+        }
+      }
+      if (command === "secret-tool") {
+        const action = args[0];
+        if (action === "store") {
+          storedSecret = stdin;
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        if (action === "lookup") {
+          return {
+            code: storedSecret ? 0 : 1,
+            stdout: storedSecret,
+            stderr: "",
+          };
+        }
+        if (action === "clear") {
+          storedSecret = "";
+          return { code: 0, stdout: "", stderr: "" };
+        }
+      }
+      throw new Error(
+        `Unexpected secret-store command: ${command} ${args.join(" ")}`,
+      );
     };
     const store = new Store(execute);
-    await store.set("private-key", keyId);
-    await store.get(keyId);
+    await store.set(privateKey, keyId);
+    const recovered = await store.get(keyId);
     await store.delete(keyId);
-    assert.equal(calls.length, 3);
+    assert.equal(
+      privateKeyDerBase64(recovered),
+      privateKeyDerBase64(privateKey),
+    );
+    assert.equal(calls.length, Store === MacOsKeychainSecretStore ? 4 : 3);
     for (const call of calls) {
       assert.ok(call.args.includes(keyId));
       assert.equal(call.args.includes("default-agent-device-key"), false);
-      assert.equal(call.args.includes("private-key"), false);
+      assert.equal(call.args.includes(privateKey), false);
     }
     if (Store === MacOsKeychainSecretStore) {
-      assert.equal(calls[0].stdin, "private-key\nprivate-key\n");
+      const stored = calls[0].stdin.split("\n")[0];
+      assert.match(stored, /^pkcs8-der:/);
+      assert.ok(stored.length <= 128);
+      assert.equal(stored.includes("\n"), false);
+      assert.equal(calls[0].stdin.includes("BEGIN PRIVATE KEY"), false);
       assert.equal(calls[0].options.detached, true);
     }
   }
+});
+
+test("macOS 钥匙串读取旧版 PEM 明文槽", async () => {
+  const keyId = randomUUID();
+  const privateKey = testIdentity().privateKey;
+  const store = new MacOsKeychainSecretStore(async (command, args) => {
+    assert.equal(command, "security");
+    assert.equal(args[0], "find-generic-password");
+    assert.ok(args.includes(keyId));
+    return { code: 0, stdout: `${privateKey}\n`, stderr: "" };
+  });
+
+  const recovered = await store.get(keyId);
+  assert.equal(privateKeyDerBase64(recovered), privateKeyDerBase64(privateKey));
+});
+
+test("macOS 钥匙串写入截断时响亮失败并清理槽", async () => {
+  const keyId = randomUUID();
+  const privateKey = testIdentity().privateKey;
+  const calls = [];
+  let storedSecret = "";
+  const store = new MacOsKeychainSecretStore(
+    async (command, args, stdin = "") => {
+      calls.push({ command, args, stdin });
+      const action = args[0];
+      if (action === "add-generic-password") {
+        storedSecret = stdin.split("\n")[0].slice(0, 64);
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (action === "find-generic-password") {
+        return { code: 0, stdout: `${storedSecret}\n`, stderr: "" };
+      }
+      if (action === "delete-generic-password") {
+        storedSecret = "";
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      throw new Error(`Unexpected security command: ${args.join(" ")}`);
+    },
+  );
+
+  await assert.rejects(store.set(privateKey, keyId), /校验失败/);
+  assert.equal(storedSecret, "");
+  assert.equal(
+    calls.some((call) => call.args[0] === "delete-generic-password"),
+    true,
+  );
 });
 
 test("Windows Skill 使用 DPAPI 保存设备私钥密文", async (context) => {
