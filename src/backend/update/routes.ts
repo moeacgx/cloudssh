@@ -5,7 +5,7 @@ import express, {
 } from "express";
 import type { AuthenticatedRequest, GitHubRelease } from "../../types/index.js";
 import { createCurrentUserRepository } from "../database/repositories/factory.js";
-import { requireSecureRecentInteractiveMfa } from "../utils/admin-sensitive-access.js";
+import { isAdministrativeTransportAllowed } from "../utils/trust-loopback-proxy.js";
 import {
   getRequestMeta,
   logAudit,
@@ -143,8 +143,25 @@ async function actorUsername(userId: string): Promise<string> {
   }
 }
 
-function requireStepUp(req: Request, res: Response): boolean {
-  return requireSecureRecentInteractiveMfa(req as AuthenticatedRequest, res);
+function requireInteractiveAdminSession(req: Request, res: Response): boolean {
+  if (!isAdministrativeTransportAllowed(req)) {
+    res.status(426).json({
+      error: "管理员更新操作必须使用 HTTPS",
+      code: "HTTPS_REQUIRED",
+    });
+    return false;
+  }
+
+  const authReq = req as AuthenticatedRequest;
+  if (authReq.apiKeyId || !authReq.sessionId || authReq.pendingTOTP) {
+    res.status(401).json({
+      error: "更新操作仅允许已完成登录的管理员网页会话访问",
+      code: "INTERACTIVE_SESSION_REQUIRED",
+    });
+    return false;
+  }
+
+  return true;
 }
 
 function requestIdempotencyKey(req: Request, res: Response): string | null {
@@ -294,7 +311,7 @@ export function createUpdateRoutes(
 
   const changeMode: RequestHandler = async (req, res) => {
     const authReq = req as AuthenticatedRequest;
-    if (!requireStepUp(req, res)) return;
+    if (!requireInteractiveAdminSession(req, res)) return;
     const userId = authReq.userId;
     const username = await actorUsername(userId);
     try {
@@ -354,7 +371,7 @@ export function createUpdateRoutes(
 
   router.post("/apply", async (req, res) => {
     const authReq = req as AuthenticatedRequest;
-    if (!requireStepUp(req, res)) return;
+    if (!requireInteractiveAdminSession(req, res)) return;
 
     const requestedTag =
       typeof req.body?.targetVersion === "string"
@@ -505,7 +522,7 @@ export function createUpdateRoutes(
 
   router.post("/rollback", async (req, res) => {
     const authReq = req as AuthenticatedRequest;
-    if (!requireStepUp(req, res)) return;
+    if (!requireInteractiveAdminSession(req, res)) return;
 
     const idempotencyKey = requestIdempotencyKey(req, res);
     if (!idempotencyKey) return;

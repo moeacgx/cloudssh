@@ -72,7 +72,7 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 {
   "schemaVersion": 3,
   "channel": "stable",
-  "version": "2.6.0-cloudssh.32",
+  "version": "2.6.0-cloudssh.33",
   "image": "ghcr.io/moeacgx/cloudssh",
   "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "revision": "0123456789abcdef0123456789abcdef01234567",

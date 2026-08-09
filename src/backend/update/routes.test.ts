@@ -46,7 +46,13 @@ import { createUpdateRoutes } from "./routes.js";
 
 let server: http.Server | undefined;
 
-async function listen(options?: { recentMfa?: boolean; production?: boolean }) {
+async function listen(options?: {
+  recentMfa?: boolean;
+  production?: boolean;
+  interactive?: boolean;
+  pendingTOTP?: boolean;
+  apiKey?: boolean;
+}) {
   const app = express();
   app.use(express.json());
   app.set("trust proxy", 1);
@@ -56,7 +62,12 @@ async function listen(options?: { recentMfa?: boolean; production?: boolean }) {
       requireAdmin: (req, _res, next) => {
         Object.assign(req, {
           userId: "admin-1",
-          sessionId: "session-1",
+          sessionId:
+            options?.apiKey || options?.interactive === false
+              ? undefined
+              : "session-1",
+          apiKeyId: options?.apiKey ? "api-key-1" : undefined,
+          pendingTOTP: options?.pendingTOTP,
           mfaVerifiedAt: options?.recentMfa
             ? Math.floor(Date.now() / 1000)
             : undefined,
@@ -249,17 +260,41 @@ describe("管理员在线更新路由", () => {
     );
   });
 
-  it("没有近期 MFA 时拒绝发起更新", async () => {
+  it("没有近期 MFA 的管理员网页会话可以发起更新", async () => {
     const base = await listen({ recentMfa: false });
     const response = await requestLocal(`${base}/admin/updates/apply`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ targetVersion: "2.6.0-cloudssh.17" }),
     });
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "MFA_STEP_UP_REQUIRED",
+    expect(response.status).toBe(202);
+    expect(mocks.startUpdate).toHaveBeenCalledWith({
+      targetVersion: "2.6.0-cloudssh.17",
+      idempotencyKey: expect.any(String),
     });
+  });
+
+  it("非交互式凭据不得执行更新写操作", async () => {
+    for (const options of [
+      { apiKey: true },
+      { interactive: false },
+      { pendingTOTP: true },
+    ]) {
+      const base = await listen(options);
+      const response = await requestLocal(`${base}/admin/updates/apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetVersion: "2.6.0-cloudssh.17" }),
+      });
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        code: "INTERACTIVE_SESSION_REQUIRED",
+      });
+      await new Promise<void>((resolve, reject) =>
+        server!.close((error) => (error ? reject(error) : resolve())),
+      );
+      server = undefined;
+    }
     expect(mocks.startUpdate).not.toHaveBeenCalled();
   });
 
