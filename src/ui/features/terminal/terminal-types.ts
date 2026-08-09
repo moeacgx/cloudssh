@@ -45,6 +45,13 @@ export interface TerminalHandle {
   sendInput: (data: string) => void;
   paste: (text: string) => void;
   notifyResize: () => void;
+  getRecentOutput: (maxLines?: number) => string;
+  getSessionContext: () => {
+    sessionId: string | null;
+    agentSessionId?: string | null;
+    hostId?: number | string | null;
+    connected: boolean;
+  };
   refresh: () => void;
   getApplicationCursorKeysMode: () => boolean;
   openShareModal: () => void;

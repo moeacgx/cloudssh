@@ -2726,6 +2726,8 @@ function AppShellContent({
 
           <WorkspaceUtilityRail
             activeHost={tabs.find((tab) => tab.id === activeTabId)?.host}
+            activeTabId={activeTabId}
+            terminalTabs={terminalTabs}
             onOpenFiles={() => {
               const host = tabs.find((tab) => tab.id === activeTabId)?.host;
               if (host) openTab(host, "files");

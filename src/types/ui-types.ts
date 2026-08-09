@@ -320,6 +320,13 @@ export type Tab = {
     fit?: () => void;
     notifyResize?: () => void;
     getApplicationCursorKeysMode?: () => boolean;
+    getRecentOutput?: (maxLines?: number) => string;
+    getSessionContext?: () => {
+      sessionId: string | null;
+      agentSessionId?: string | null;
+      hostId?: number | string | null;
+      connected: boolean;
+    };
     openShareModal?: () => void;
     canShare?: () => boolean;
     pinSession?: (pinned?: boolean) => Promise<boolean>;
@@ -394,6 +401,7 @@ export type AdminSection =
   | "sessions"
   | "roles"
   | "host-defaults"
+  | "panel-agent"
   | "database"
   | "api-keys"
   | "audit-log"

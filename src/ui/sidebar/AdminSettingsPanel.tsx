@@ -90,6 +90,7 @@ import { SSOProviderDialog } from "./SSOProviderDialog";
 import { AdminApiKeysSection } from "./AdminApiKeysSection";
 import { AdminAuditLogSection } from "./AdminAuditLogSection";
 import { AdminUpdateSection } from "./AdminUpdateSection";
+import { AdminPanelAgentSection } from "./AdminPanelAgentSection";
 import {
   AdminCreateUserDialog,
   AdminEditUserDialog,
@@ -1028,6 +1029,11 @@ export function AdminSettingsPanel({
         tailscaleApiKey={tailscaleApiKey}
         setTailscaleApiKey={setTailscaleApiKey}
         handleSaveTailscaleApiKey={handleSaveTailscaleApiKey}
+      />
+
+      <AdminPanelAgentSection
+        open={openSections.has("panel-agent")}
+        onToggle={() => toggle("panel-agent")}
       />
 
       <AdminUpdateSection

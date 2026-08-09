@@ -114,6 +114,31 @@ interface SSHTerminalProps {
 }
 
 const ALTERNATE_SCREEN_SEQUENCE = /\x1b\[\?(47|1047|1049)([hl])/g;
+const RECENT_OUTPUT_MAX_CHARS = 128 * 1024;
+const ANSI_SEQUENCE = /\x1b(?:[@-Z\\-_]|\[[0-9;?>=!]*[@-~])/g;
+
+function cleanTerminalContext(value: string) {
+  return value
+    .replace(ANSI_SEQUENCE, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
+}
+
+function appendRecentOutput(current: string, value: string) {
+  const next = current + cleanTerminalContext(value);
+  return next.length > RECENT_OUTPUT_MAX_CHARS
+    ? next.slice(next.length - RECENT_OUTPUT_MAX_CHARS)
+    : next;
+}
+
+function recentOutputLines(value: string, maxLines = 120) {
+  const bounded = Math.max(1, Math.min(500, Math.floor(maxLines)));
+  return value
+    .replace(/\r/g, "")
+    .split("\n")
+    .slice(-bounded)
+    .join("\n")
+    .trimEnd();
+}
 
 const SESSION_PIN_ERROR_MESSAGE_KEYS: Record<string, string> = {
   SESSION_PIN_MODE_REQUIRED: "terminal.sessionPinModeRequired",
@@ -200,6 +225,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const savedTheme = localStorage.getItem(
       `terminal_theme_host_${hostConfig.id}`,
     );
+    const recentOutputRef = useRef("");
     const config = {
       ...DEFAULT_TERMINAL_CONFIG,
       ...hostConfig.terminalConfig,
@@ -1280,6 +1306,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             isFittingRef.current = false;
           }
         },
+        getRecentOutput: (maxLines?: number) =>
+          recentOutputLines(recentOutputRef.current, maxLines),
+        getSessionContext: () => ({
+          sessionId: sessionIdRef.current,
+          agentSessionId: hostConfig.agentSessionId ?? null,
+          hostId: hostConfig.id ?? null,
+          connected: isConnected,
+        }),
         focus: () => terminal?.focus(),
         sendInput: (data: string) => {
           sendTerminalInput(data);
@@ -1735,6 +1769,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               }
 
               terminal.write(formatTerminalOutput(msg.data));
+              recentOutputRef.current = appendRecentOutput(
+                recentOutputRef.current,
+                msg.data,
+              );
               // Strip ANSI escape codes before testing — newer sudo versions (Ubuntu 26.04+)
               // emit colored prompts with embedded escape sequences that break the regex.
               const strippedData = msg.data.replace(
@@ -1745,6 +1783,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             } else {
               const stringData = String(msg.data);
               terminal.write(formatTerminalOutput(stringData));
+              recentOutputRef.current = appendRecentOutput(
+                recentOutputRef.current,
+                stringData,
+              );
             }
           } else if (msg.type === "error") {
             const rawErrorMessage = msg.message || t("terminal.unknownError");

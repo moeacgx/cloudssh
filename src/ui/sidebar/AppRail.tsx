@@ -90,7 +90,6 @@ function buildRailButtons(
       icon: <Usb size={16} />,
       title: t("nav.serial"),
     },
-    { kind: "separator" },
     { view: "ssh-tools", icon: <Hammer size={16} />, title: t("nav.sshTools") },
     { kind: "separator" },
     { view: "snippets", icon: <Play size={16} />, title: t("nav.snippets") },

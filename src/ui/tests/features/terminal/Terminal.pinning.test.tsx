@@ -988,6 +988,27 @@ describe("固定窗口输入保护", () => {
   });
 });
 
+describe("Panel Agent 终端上下文", () => {
+  it("暴露最近输出和当前会话上下文", async () => {
+    const { ref, socket } = await renderConnectedTerminal();
+
+    act(() => socket.message({ type: "connected" }));
+    act(() =>
+      socket.message({
+        type: "data",
+        data: "\u001b[31mnginx failed\u001b[0m\nnext prompt",
+      }),
+    );
+
+    expect(ref.current?.getRecentOutput()).toBe("nginx failed\nnext prompt");
+    expect(ref.current?.getSessionContext()).toMatchObject({
+      sessionId: "sess-42",
+      hostId: 42,
+      connected: true,
+    });
+  });
+});
+
 describe("Agent 会话单写租约", () => {
   async function renderAgentTerminal() {
     const ref = createRef<TerminalHandle>();
