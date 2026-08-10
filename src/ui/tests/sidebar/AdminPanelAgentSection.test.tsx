@@ -44,6 +44,12 @@ const settings = {
 beforeEach(() => {
   vi.clearAllMocks();
   panelAgentApi.getPanelAgentSettings.mockResolvedValue(settings);
+  Element.prototype.scrollIntoView = vi.fn();
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    callback(0);
+    return 1;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -62,6 +68,16 @@ describe("AdminPanelAgentSection", () => {
 
     expect(await screen.findByText("admin.panelAgentEnable")).toBeTruthy();
     expect(panelAgentApi.getPanelAgentSettings).toHaveBeenCalledOnce();
+  });
+
+  it("scrolls the section into view when opened near the bottom", async () => {
+    render(<AdminPanelAgentSection open onToggle={() => undefined} />);
+
+    await screen.findByText("admin.panelAgentEnable");
+
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+    });
   });
 
   it("shows a retryable error instead of an empty panel when settings fail", async () => {

@@ -1,4 +1,4 @@
-import type React from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
 export function AdminToggle({
@@ -26,15 +26,29 @@ export function AccordionSection({
   open,
   onToggle,
   children,
+  scrollIntoViewOnOpen = false,
 }: {
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   open: boolean;
   onToggle: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
+  scrollIntoViewOnOpen?: boolean;
 }) {
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open || !scrollIntoViewOnOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      sectionRef.current?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, scrollIntoViewOnOpen]);
   return (
-    <div className="border border-border bg-card overflow-hidden shrink-0">
+    <div
+      ref={sectionRef}
+      className="border border-border bg-card overflow-hidden shrink-0"
+    >
       <button
         onClick={onToggle}
         className="flex items-center gap-2 w-full px-3 py-2.5 text-left hover:bg-muted/40 transition-colors"

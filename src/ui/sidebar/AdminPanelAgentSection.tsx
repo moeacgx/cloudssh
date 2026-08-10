@@ -123,6 +123,7 @@ export function AdminPanelAgentSection({
       icon={<Bot className="size-4" />}
       open={open}
       onToggle={onToggle}
+      scrollIntoViewOnOpen
     >
       <div className="space-y-3 pt-3">
         {loading && (
