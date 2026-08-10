@@ -346,7 +346,9 @@ describe("AgentIntegrationPanel", () => {
     const otherGroup = screen.getByRole("region", {
       name: "agentIntegration.management.otherAccountDevices",
     });
-    expect(within(ownGroup).getAllByText("共享工作站")).toHaveLength(1);
+    await expect(
+      within(ownGroup).findAllByText("共享工作站"),
+    ).resolves.toHaveLength(1);
     expect(within(otherGroup).getAllByText("共享工作站")).toHaveLength(1);
     expect(otherGroup.textContent).toContain(
       "agentIntegration.management.deviceOwnerAccount:project-admin",
