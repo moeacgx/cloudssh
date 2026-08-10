@@ -73,7 +73,7 @@ describe("CloudSSH 正式发版工作流", () => {
       expect(image).toMatch(/^node:[^@\s]+@sha256:[0-9a-f]{64}$/);
     }
     expect(dockerfile).toContain("FROM --platform=$BUILDPLATFORM node:");
-    expect(dockerfile).toContain("FROM --platform=$TARGETPLATFORM node:");
+    expect(dockerfile).toContain("AS production-deps");
   });
 
   it("生产编排固定 guacd 摘要并与应用版本保持一致", async () => {
