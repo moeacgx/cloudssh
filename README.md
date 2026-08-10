@@ -27,41 +27,34 @@ CloudSSH 是面向个人和小团队的自托管云 SSH 与 Agent 运维平台�
 
 ## ✨ CloudSSH 强化了什么
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Panel_Agent-SSH_Copilot-f97316?style=for-the-badge" alt="Panel Agent SSH Copilot" />
-  <img src="https://img.shields.io/badge/Human_%2B_Agent-Co--control-10b981?style=for-the-badge" alt="Human and Agent co-control" />
-  <img src="https://img.shields.io/badge/Multi--Server-Ops-6366f1?style=for-the-badge" alt="Multi-server operations" />
-  <img src="https://img.shields.io/badge/Skills-Guardrails-111827?style=for-the-badge" alt="Skills guardrails" />
-</p>
-
-- **个人空间与团队项目**：每位成员拥有隔离的个人空间；团队项目支持成员、
+- **👥 个人空间与团队项目**：每位成员拥有隔离的个人空间；团队项目支持成员、
   角色组和项目管理员、操作者、只读成员等分级权限。
-- **项目级服务器资产**：文件夹、标签、主机和快速连接都归属当前项目。同一台
+- **🗂️ 项目级服务器资产**：文件夹、标签、主机和快速连接都归属当前项目。同一台
   底层主机可以共享到多个项目，并保留稳定主机身份，不会被 Agent 识别成多台机器。
-- **安全的凭据代用**：项目成员和 Agent 只能让平台代为连接，不能读取 SSH 密码、
+- **🔐 安全的凭据代用**：项目成员和 Agent 只能让平台代为连接，不能读取 SSH 密码、
   私钥或口令。凭据使用 AES-256-GCM 信封加密，根密钥与数据库备份分离。
-- **平台持续会话**：CloudSSH 后端可以直接持有 SSH PTY，不要求目标机安装
+- **🧷 平台持续会话**：CloudSSH 后端可以直接持有 SSH PTY，不要求目标机安装
   `tmux`。浏览器关闭或 Agent 分离后，会话仍可从“连接”中继续进入。
-- **远端 `tmux` 固定会话**：适合跨 CloudSSH 重启恢复的长任务。创建固定窗口时
+- **🪟 远端 `tmux` 固定会话**：适合跨 CloudSSH 重启恢复的长任务。创建固定窗口时
   明确选择平台模式或 `tmux` 模式，不会静默安装软件。
-- **网页、本地 Agent 与面板 Agent 共用终端**：网页、已授权本地 Agent 和面板内在线 Agent
+- **🤝 网页、本地 Agent 与面板 Agent 共用终端**：网页、已授权本地 Agent 和面板内在线 Agent
   可以进入或观察同一条 SSH 会话。单会话只允许一个写入租约，其他附件默认只读并可申请接管。
-- **面板内在线 Agent**：SSH 窗口右侧提供 Agent 对话，读取当前目标窗口、终端上下文和
+- **🤖 面板内在线 Agent**：SSH 窗口右侧提供 Agent 对话，读取当前目标窗口、终端上下文和
   可选 Skills，在人工可见、可接管的边界内把命令写回所选 SSH。
-- **多服务器 Agent 运维能力**：支持选择多个 SSH 终端作为目标，让 Agent 按管理员配置的
+- **🌐 多服务器 Agent 运维能力**：支持选择多个 SSH 终端作为目标，让 Agent 按管理员配置的
   模型、Skills 和最大并发执行排障、安装、巡检、文件操作等任务。
-- **无 Token 本地 Agent Skill**：设备首次生成 Ed25519 密钥，通过设备码在网页审批一次；
+- **🪪 无 Token 本地 Agent Skill**：设备首次生成 Ed25519 密钥，通过设备码在网页审批一次；
   后续请求自动签名，不需要 MCP、长期访问 Token 或逐次批准。
-- **签名 API 运维能力**：本地 Agent 支持按项目和分类查询或创建主机、快速连接、结构化 Job、
+- **🛠️ 签名 API 运维能力**：本地 Agent 支持按项目和分类查询或创建主机、快速连接、结构化 Job、
   持续 SSH 会话，以及受权限控制的 SFTP 文件管理。
-- **可审计的 SFTP**：Agent 支持 `list`、`read`、`upload`、`download`、
+- **📁 可审计的 SFTP**：Agent 支持 `list`、`read`、`upload`、`download`、
   `mkdir`、`rename` 和 `delete`。上传下载只接收本地路径，文件正文不会进入
   Agent 对话。
-- **主机信息补全**：服务器列表可显示国家、城市、ISP 和 ASN；内网地址不会发送给
+- **🧭 主机信息补全**：服务器列表可显示国家、城市、ISP 和 ASN；内网地址不会发送给
   第三方地理信息服务。
-- **MFA 与通行密钥**：登录和高风险操作支持 TOTP 与 WebAuthn。凭据明文访问、
+- **🛡️ MFA 与通行密钥**：登录和高风险操作支持 TOTP 与 WebAuthn。凭据明文访问、
   设备审批、主机修改、会话写入和 SFTP 写操作都会进入审计。
-- **容器内安全更新**：支持 `auto`、`binary` 和 `image` 三种方式，不使用
+- **🚀 容器内安全更新**：支持 `auto`、`binary` 和 `image` 三种方式，不使用
   updater sidecar，也不向应用挂载 Docker Socket。
 
 ## 保留 Termix 的成熟能力
