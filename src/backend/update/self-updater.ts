@@ -7,6 +7,7 @@ import path from "path";
 import Database from "better-sqlite3";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
+import { DatabaseFileEncryption } from "../utils/database-file-encryption.js";
 import { extractRuntimeArchive } from "./runtime-archive.js";
 import { compareVersions, versionFromReleaseTag } from "./version.js";
 
@@ -1020,22 +1021,44 @@ async function createDatabaseSnapshot(jobId: string): Promise<string> {
     `self-update-${now().toISOString().replace(/[:.]/g, "-")}-${jobId.slice(0, 8)}`,
   );
   await fs.mkdir(snapshotDir, { recursive: true, mode: 0o700 });
-
   const files: Array<{ name: string; size: number; sha256: string }> = [];
-  for (const name of [
-    "db.sqlite.encrypted",
-    "db.sqlite.encrypted.meta",
-    "db.sqlite",
-  ]) {
+
+  const copySnapshotFile = async (name: string): Promise<boolean> => {
     const destination = path.join(snapshotDir, name);
-    if (await copyRegularFile(path.join(dataDir(), name), destination)) {
-      const stat = await fs.stat(destination);
-      files.push({
-        name,
-        size: stat.size,
-        sha256: await hashFile(destination),
-      });
+    if (!(await copyRegularFile(path.join(dataDir(), name), destination))) {
+      return false;
     }
+    const stat = await fs.stat(destination);
+    files.push({
+      name,
+      size: stat.size,
+      sha256: await hashFile(destination),
+    });
+    return true;
+  };
+
+  const encryptedCopied = await copySnapshotFile("db.sqlite.encrypted");
+  const metadataCopied = await copySnapshotFile("db.sqlite.encrypted.meta");
+  await copySnapshotFile("db.sqlite");
+  if (metadataCopied && !encryptedCopied) {
+    throw new UpdaterClientError(
+      "加密数据库快照缺少数据文件",
+      "DATABASE_SNAPSHOT_INCOMPLETE",
+      500,
+    );
+  }
+  if (
+    encryptedCopied &&
+    !metadataCopied &&
+    !DatabaseFileEncryption.isEncryptedDatabaseFile(
+      path.join(snapshotDir, "db.sqlite.encrypted"),
+    )
+  ) {
+    throw new UpdaterClientError(
+      "加密数据库快照不是有效的单文件格式",
+      "DATABASE_SNAPSHOT_INCOMPLETE",
+      500,
+    );
   }
 
   const agentDatabase = path.join(dataDir(), "agent", "agent-security.sqlite");
@@ -1068,17 +1091,6 @@ async function createDatabaseSnapshot(jobId: string): Promise<string> {
     throw new UpdaterClientError(
       "没有找到可快照的数据库文件",
       "DATABASE_SNAPSHOT_EMPTY",
-      500,
-    );
-  }
-  const names = new Set(files.map((file) => file.name));
-  if (
-    names.has("db.sqlite.encrypted") &&
-    !names.has("db.sqlite.encrypted.meta")
-  ) {
-    throw new UpdaterClientError(
-      "加密数据库快照缺少元数据文件",
-      "DATABASE_SNAPSHOT_INCOMPLETE",
       500,
     );
   }

@@ -292,6 +292,40 @@ describe("CloudSSH 容器内自更新", () => {
       code: "ENOENT",
     });
   });
+  it("兼容带内置元数据的单文件加密数据库", async () => {
+    await fs.rm(path.join(directory, "db.sqlite"));
+    const metadata = Buffer.from(
+      JSON.stringify({
+        iv: "0".repeat(32),
+        tag: "1".repeat(32),
+        version: "v2",
+        fingerprint: "termix-v2-systemcrypto",
+        algorithm: "aes-256-gcm",
+        dataSize: 5,
+      }),
+    );
+    const header = Buffer.alloc(4);
+    header.writeUInt32BE(metadata.length, 0);
+    await fs.writeFile(
+      path.join(directory, "db.sqlite.encrypted"),
+      Buffer.concat([header, metadata, Buffer.from("data!")]),
+    );
+
+    const update = await startUpdate({
+      targetVersion: VERSION,
+      idempotencyKey: "update:single-file-db",
+    });
+    const restarting = await waitForJob(update.id, "restarting");
+    const snapshotManifest = JSON.parse(
+      await fs.readFile(
+        path.join(restarting.backupArchive!, "manifest.json"),
+        "utf8",
+      ),
+    ) as { files: Array<{ name: string }> };
+    const fileNames = snapshotManifest.files.map((file) => file.name);
+    expect(fileNames).toContain("db.sqlite.encrypted");
+    expect(fileNames).not.toContain("db.sqlite.encrypted.meta");
+  });
 
   it("SHA-256 不匹配时保留当前运行目录并记录失败", async () => {
     setSelfUpdaterTestHooks({
