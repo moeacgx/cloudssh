@@ -25,7 +25,14 @@ CloudSSH 是面向个人和小团队的自托管云 SSH 与 Agent 运维平台�
 <!-- prettier-ignore -->
 <p align="center"><img src="docs/repo-images/panel-agent-ssh-copilot.png" alt="面板在线 Agent 与人工共管同一个 SSH 终端" width="49%" /> <img src="docs/repo-images/local-agent-panel-copilot.png" alt="本地 Agent 接入与面板 Agent 侧栏同时工作" width="49%" /></p>
 
-## CloudSSH 强化了什么
+## ✨ CloudSSH 强化了什么
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Panel_Agent-SSH_Copilot-f97316?style=for-the-badge" alt="Panel Agent SSH Copilot" />
+  <img src="https://img.shields.io/badge/Human_%2B_Agent-Co--control-10b981?style=for-the-badge" alt="Human and Agent co-control" />
+  <img src="https://img.shields.io/badge/Multi--Server-Ops-6366f1?style=for-the-badge" alt="Multi-server operations" />
+  <img src="https://img.shields.io/badge/Skills-Guardrails-111827?style=for-the-badge" alt="Skills guardrails" />
+</p>
 
 - **个人空间与团队项目**：每位成员拥有隔离的个人空间；团队项目支持成员、
   角色组和项目管理员、操作者、只读成员等分级权限。
