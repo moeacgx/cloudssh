@@ -11,10 +11,11 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 - `auto`：默认方式。后台一键更新使用 Release 运行包；容器镜像中的版本更高时，
   下次启动自动优先使用镜像版本。
 - `binary`：后台一键更新使用 Release 运行包，并持续优先使用已经确认启动的
-  `app-current`。
-- `image`：始终使用镜像内程序。此方式不允许后台替换容器镜像，需要管理员在
-  宿主机执行 `docker compose pull && docker compose up -d`。这是不向应用暴露
-  Docker Socket 的安全边界。
+  `app-current`。这里的“binary”是持久化运行包模式，不是单文件可执行程序；它需要
+  下载并安全解压运行包，适合不能授予宿主机 Docker 权限的环境。
+- `image`：始终使用镜像内程序。生产环境应使用宿主机的
+  `scripts/cloudssh-host-image-update.sh` 加载已校验的离线镜像并重启容器；应用容器
+  不会获得 Docker Socket。
 
 更新方式写入数据卷的 `/app/data/update-mode.txt`，所以重建容器后仍然有效。
 
@@ -64,7 +65,7 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 - `cloudssh-self-update.json` 与 `.sha256`；
 - `cloudssh-runtime-<version>-linux-amd64.tar.gz` 与 `.sha256`；
 - `cloudssh-runtime-<version>-linux-arm64.tar.gz` 与 `.sha256`。
-- `cloudssh-image-<version>-linux-<arch>.tar.gz`、镜像 ID 与 `.sha256`。
+- `cloudssh-image-<version>-linux-<arch>.tar.gz`、镜像 ID 与 `.sha256`，供宿主机快速重启更新。
 
 总清单示例：
 
@@ -72,7 +73,7 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 {
   "schemaVersion": 3,
   "channel": "stable",
-  "version": "2.6.0-cloudssh.34",
+  "version": "2.6.0-cloudssh.35",
   "image": "ghcr.io/moeacgx/cloudssh",
   "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "revision": "0123456789abcdef0123456789abcdef01234567",
@@ -100,22 +101,27 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 Release 的 `immutable` 状态并校验证明。仓库发布权限失陷仍属于信任边界，不能把
 SHA-256 描述成独立的发布者签名。
 
-## 手工镜像更新
+## 生产快速重启更新
 
-使用 `image` 模式时，在宿主机更新固定镜像版本并重建应用：
+运行包更新会下载并安全解压应用、依赖和原生模块；生产机需要更短的升级窗口时，使用
+宿主机镜像更新器。它下载对应架构的离线镜像，校验 Release 清单、附件 SHA-256、镜像
+ID、架构和版本标签，然后才停止服务、备份、`docker load`、重建容器并检查 `/health`。
+新容器未在 120 秒内健康时，它会自动恢复升级前镜像。
+
+在 `/opt/cloudssh` 的受控运维账号执行；省略版本时选择最新正式 Release：
 
 ```sh
 cd /opt/cloudssh
-docker compose --env-file docker/.env \
-  -f docker/docker-compose.cloudssh.yml pull cloudssh
-docker compose --env-file docker/.env \
-  -f docker/docker-compose.cloudssh.yml up -d --no-deps cloudssh
+sh scripts/cloudssh-host-image-update.sh
+
+# 固定升级到指定正式版本
+sh scripts/cloudssh-host-image-update.sh 2.6.0-cloudssh.35
 ```
 
-更新前仍应执行 `scripts/cloudssh-backup.sh` 并完成一次隔离恢复验证。运行包回退只
-切换程序，不会自动把数据库覆盖为旧快照；发生不兼容迁移时必须按
-`docs/CLOUDSSH.md` 的恢复流程人工处理。
+脚本需要 `curl`、`docker`、`gzip` 与 `sha256sum`（或 `shasum`），并且要求当前镜像仍在本机，
+以保证失败时能够回滚。它只在宿主机调用 Docker；CloudSSH 容器和管理面板都不会挂载或暴露
+Docker Socket。
 
-首次启用容器内更新时仍需人工部署一次包含管理员更新反代和稳定入口脚本的版本（`.30` 或更高）。之后
-`auto` 或 `binary` 才能从管理面板完成后续运行包更新；使用 `docker run` 时必须
-配置可自动重启的策略，否则程序切换后的 `SIGTERM` 不会自行拉起容器。
+`auto` 与 `binary` 仍保留为无宿主机权限时的容器内运行包更新。生产机采用本节路径时，
+请把面板更新方式设为 `image`，避免随后选择较慢的运行包。运行包回退只切换程序，不会
+自动把数据库覆盖为旧快照；发生不兼容迁移时必须按 `docs/CLOUDSSH.md` 的恢复流程人工处理。
