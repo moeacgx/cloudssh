@@ -304,6 +304,20 @@ export function buildProjectHostMetadataInput(
   };
 }
 
+function normalizedHostTags(tags: string[], tagInput: string): string[] {
+  const next = [...tags];
+  const pendingTags = tagInput
+    .split(/[\s,，]+/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+
+  for (const tag of pendingTags) {
+    if (!next.includes(tag)) next.push(tag);
+  }
+
+  return next;
+}
+
 export function buildHostEditorPayload(
   form: HostEditorForm,
   protocols: HostProtocols,
@@ -335,7 +349,7 @@ export function buildHostEditorPayload(
           : Number(form.telnetPort),
     username: form.username,
     folder: form.folder,
-    tags: form.tags,
+    tags: normalizedHostTags(form.tags, form.tagInput),
     pin: form.pin,
     authType: form.authType,
     useWarpgate: form.useWarpgate,

@@ -248,6 +248,18 @@ describe("buildHostEditorPayload auth field isolation", () => {
     expect(tc?.sudoPassword).toBe("sudo-secret");
   });
 
+  it("includes the unfinished tag draft when saving immediately", () => {
+    const form = {
+      ...createHostEditorForm(null),
+      tags: ["Canvas"],
+      tagInput: "test，ops  test",
+    };
+
+    const payload = buildHostEditorPayload(form, sshOnly);
+
+    expect(payload.tags).toEqual(["Canvas", "test", "ops"]);
+  });
+
   it("persists the create-as-pinned preference in terminalConfig", () => {
     expect(createHostEditorForm(null).startPinned).toBe(false);
 
