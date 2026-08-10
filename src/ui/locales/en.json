@@ -814,6 +814,8 @@
     "utility": {
       "agentSessions": "Agent sessions",
       "agentChat": "Agent chat",
+      "agentFloat": "Open floating Agent",
+      "agentFloatMinimize": "Minimize floating Agent",
       "activityLog": "Activity log",
       "collapse": "Collapse panel",
       "singleWriterLease": "Single-writer lease",

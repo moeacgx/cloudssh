@@ -814,6 +814,8 @@
     "utility": {
       "agentSessions": "Agent 会话",
       "agentChat": "Agent 对话",
+      "agentFloat": "打开浮动 Agent",
+      "agentFloatMinimize": "最小化浮动 Agent",
       "activityLog": "操作记录",
       "collapse": "收起面板",
       "singleWriterLease": "单写者租约",
