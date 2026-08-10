@@ -35,4 +35,16 @@ describe("CloudSSH 快速镜像构建工作流", () => {
     expect(workflow).not.toContain("gh release");
     expect(workflow).not.toContain("docker load");
   });
+
+  it("Docker 上下文排除不影响应用构建的 CI、文档和测试文件", async () => {
+    const dockerignore = await readFile(".dockerignore", "utf8");
+
+    expect(dockerignore).toContain(".github/");
+    expect(dockerignore).toContain("docs/");
+    expect(dockerignore).toContain("**/*.test.ts");
+    expect(dockerignore).toContain("**/*.test.tsx");
+    expect(dockerignore).toContain("src/**/tests/");
+    expect(dockerignore).toContain("vitest.config.ts");
+    expect(dockerignore).toContain("vitest.setup.ts");
+  });
 });

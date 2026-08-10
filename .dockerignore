@@ -35,6 +35,17 @@ Thumbs.db
 
 .git
 .gitignore
+.github/
+
+docs/
+
+**/*.test.ts
+**/*.test.tsx
+**/*.test.mjs
+src/**/tests/
+vitest.config.ts
+vitest.setup.ts
+
 
 README.md
 CONTRIBUTING.md

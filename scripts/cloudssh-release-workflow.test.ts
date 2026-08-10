@@ -62,18 +62,18 @@ describe("CloudSSH 正式发版工作流", () => {
   });
 
   it("生产镜像的外部基础镜像全部固定到 SHA-256 摘要", async () => {
-    const dockerfiles = await Promise.all([
-      readFile("docker/Dockerfile", "utf8"),
-    ]);
-    const externalImages = dockerfiles.flatMap((dockerfile) =>
-      [...dockerfile.matchAll(/^FROM\s+(node:[^\s]+)(?:\s|$)/gm)].map(
-        (match) => match[1],
+    const dockerfile = await readFile("docker/Dockerfile", "utf8");
+    const externalImages = [
+      ...dockerfile.matchAll(
+        /^FROM\s+(?:--platform=\$[A-Z]+PLATFORM\s+)?(node:[^\s]+)(?:\s|$)/gm,
       ),
-    );
+    ].map((match) => match[1]);
     expect(externalImages.length).toBeGreaterThan(0);
     for (const image of externalImages) {
       expect(image).toMatch(/^node:[^@\s]+@sha256:[0-9a-f]{64}$/);
     }
+    expect(dockerfile).toContain("FROM --platform=$BUILDPLATFORM node:");
+    expect(dockerfile).toContain("FROM --platform=$TARGETPLATFORM node:");
   });
 
   it("生产编排固定 guacd 摘要并与应用版本保持一致", async () => {
