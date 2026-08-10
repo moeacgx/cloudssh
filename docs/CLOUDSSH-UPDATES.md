@@ -121,6 +121,9 @@ sh scripts/cloudssh-host-image-update.sh 2.6.0-cloudssh.35
 脚本需要 `curl`、`docker`、`gzip` 与 `sha256sum`（或 `shasum`），并且要求当前镜像仍在本机，
 以保证失败时能够回滚。它只在宿主机调用 Docker；CloudSSH 容器和管理面板都不会挂载或暴露
 Docker Socket。
+日常推送到 `main` 时，`.github/workflows/cloudssh-docker.yml` 会用缓存优先的多架构 Buildx
+直接推送 `ghcr.io/moeacgx/cloudssh` 镜像；正式 Release 仍由 `cloudssh-release.yml`
+保留严格的离线包、校验和不可变 Release 链路。
 
 `auto` 与 `binary` 仍保留为无宿主机权限时的容器内运行包更新。生产机采用本节路径时，
 请把面板更新方式设为 `image`，避免随后选择较慢的运行包。运行包回退只切换程序，不会
