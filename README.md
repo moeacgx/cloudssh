@@ -12,13 +12,18 @@
 
 CloudSSH 是面向个人和小团队的自托管云 SSH 与 Agent 运维平台。它基于
 [Termix 2.6.0](https://github.com/Termix-SSH/Termix)，重点补齐了项目级资产隔离、
-可共享的持续会话、无 Token 的 Agent Skill、凭据安全、完整审计和容器内一键更新。
+可共享的持续会话、本地 Agent Skill、面板内在线 Agent、凭据安全、完整审计和容器内一键更新。
 
 它不只是把终端搬到浏览器里，而是把服务器、项目权限、加密凭据、持续会话、
-文件操作和自动化入口放进同一个工作台。
+文件操作、在线 Agent 共管和自动化入口放进同一个工作台。
 
 > 当前版本仍在快速迭代。正式部署前请备份数据库、录像卷和根密钥，并完成一次
 > 隔离恢复验证。
+
+## 界面预览
+
+<!-- prettier-ignore -->
+<p align="center"><img src="docs/repo-images/panel-agent-ssh-copilot.png" alt="面板在线 Agent 与人工共管同一个 SSH 终端" width="49%" /> <img src="docs/repo-images/local-agent-panel-copilot.png" alt="本地 Agent 接入与面板 Agent 侧栏同时工作" width="49%" /></p>
 
 ## CloudSSH 强化了什么
 
@@ -32,11 +37,15 @@ CloudSSH 是面向个人和小团队的自托管云 SSH 与 Agent 运维平台�
   `tmux`。浏览器关闭或 Agent 分离后，会话仍可从“连接”中继续进入。
 - **远端 `tmux` 固定会话**：适合跨 CloudSSH 重启恢复的长任务。创建固定窗口时
   明确选择平台模式或 `tmux` 模式，不会静默安装软件。
-- **网页与 Agent 共用终端**：Agent 创建的会话会显示在网页连接列表，网页可以
-  进入同一个终端。单会话只允许一个写入租约，其他附件默认只读并可申请接管。
-- **无 Token Agent Skill**：设备首次生成 Ed25519 密钥，通过设备码在网页审批一次；
+- **网页、本地 Agent 与面板 Agent 共用终端**：网页、已授权本地 Agent 和面板内在线 Agent
+  可以进入或观察同一条 SSH 会话。单会话只允许一个写入租约，其他附件默认只读并可申请接管。
+- **面板内在线 Agent**：SSH 窗口右侧提供 Agent 对话，读取当前目标窗口、终端上下文和
+  可选 Skills，在人工可见、可接管的边界内把命令写回所选 SSH。
+- **多服务器 Agent 运维能力**：支持选择多个 SSH 终端作为目标，让 Agent 按管理员配置的
+  模型、Skills 和最大并发执行排障、安装、巡检、文件操作等任务。
+- **无 Token 本地 Agent Skill**：设备首次生成 Ed25519 密钥，通过设备码在网页审批一次；
   后续请求自动签名，不需要 MCP、长期访问 Token 或逐次批准。
-- **Agent 运维能力**：支持按项目和分类查询或创建主机、快速连接、结构化 Job、
+- **签名 API 运维能力**：本地 Agent 支持按项目和分类查询或创建主机、快速连接、结构化 Job、
   持续 SSH 会话，以及受权限控制的 SFTP 文件管理。
 - **可审计的 SFTP**：Agent 支持 `list`、`read`、`upload`、`download`、
   `mkdir`、`rename` 和 `delete`。上传下载只接收本地路径，文件正文不会进入
@@ -56,6 +65,7 @@ CloudSSH 继续提供 Web SSH、SFTP 文件管理与在线编辑、多标签终�
 ```mermaid
 flowchart LR
     Browser["Web 工作台"] --> CloudSSH["CloudSSH"]
+    PanelAgent["面板在线 Agent<br/>SSH 侧栏 / Skills"] --> CloudSSH
     Skill["本地 Agent Skill<br/>Ed25519 请求签名"] --> CloudSSH
     CloudSSH --> Control["项目权限 / 加密凭据<br/>会话 Broker / 审计"]
     Control --> Hosts["SSH / SFTP / RDP / VNC 主机"]
@@ -73,13 +83,17 @@ flowchart LR
 
 普通无人附着会话默认保留 24 小时。显式关闭会话才会结束对应的远端任务。
 
-## Agent Skill 不暴露 SSH 凭据
+## 面板 Agent 与本地 Agent
 
-CloudSSH 自带零 npm 依赖的
-[`cloudssh-agent` Skill](skills/cloudssh-agent/SKILL.md)。Agent 主机只需要
+面板内在线 Agent 由管理员配置 OpenAI 兼容 Base URL、模型、API Key、最大并发和 Skills。
+用户在 SSH 窗口右侧选择目标终端后，可以让 Agent 根据当前终端输出、文件窗口和对话上下文
+生成并执行命令；人工仍在同一个 SSH 里查看输出、继续输入或接管写入权。
+
+CloudSSH 也保留零 npm 依赖的
+[`cloudssh-agent` Skill](skills/cloudssh-agent/SKILL.md)。本地 Agent 主机只需要
 Node.js 20 或更高版本，不需要安装 MCP 客户端，也不需要克隆并构建整个仓库。
 
-首次登录时，Skill 会在本机生成 Ed25519 设备密钥，并显示一次性设备码和公钥指纹。
+本地 Skill 首次登录时会在本机生成 Ed25519 设备密钥，并显示一次性设备码和公钥指纹。
 设备私钥保存在 Windows DPAPI、macOS Keychain 或 Linux Secret Service 中；安全
 存储不可用时会停止，不会降级为明文私钥文件。
 
@@ -137,7 +151,7 @@ docker compose -f docker/docker-compose.cloudssh.yml up -d
 - 首版没有内网 Connector，CloudSSH 实例必须能够直接访问目标服务器。
 - 手机端覆盖连接、输入、会话恢复和紧急关闭，复杂管理操作以桌面网页为主。
 - Electron 尚未同步全部团队控制面能力。
-- CloudSSH 不提供内置 AI 聊天，Agent 通过独立 Skill 和签名 API 接入。
+- 面板在线 Agent 依赖管理员配置的 OpenAI 兼容接口；本地 Agent 仍通过独立 Skill 和签名 API 接入。
 
 ## 文档
 
