@@ -112,10 +112,42 @@ export type PanelAgentPlan = {
   targets: PanelAgentTargetPlan[];
 };
 
+function readSettingsPayload(payload: unknown): PanelAgentSettings {
+  const wrappedPayload =
+    payload !== null && typeof payload === "object"
+      ? (payload as { settings?: unknown })
+      : null;
+  const candidate =
+    wrappedPayload && "settings" in wrappedPayload
+      ? wrappedPayload.settings
+      : payload;
+
+  if (candidate === null || typeof candidate !== "object") {
+    throw new Error("Invalid Panel Agent settings response");
+  }
+  const settings = candidate as Partial<PanelAgentSettings>;
+  if (
+    typeof settings.enabled !== "boolean" ||
+    settings.provider !== "openai-compatible" ||
+    typeof settings.baseUrl !== "string" ||
+    typeof settings.model !== "string" ||
+    typeof settings.temperature !== "number" ||
+    typeof settings.maxTokens !== "number" ||
+    typeof settings.multiServerEnabled !== "boolean" ||
+    typeof settings.maxTargets !== "number" ||
+    !Array.isArray(settings.skills) ||
+    typeof settings.apiKeyConfigured !== "boolean"
+  ) {
+    throw new Error("Invalid Panel Agent settings response");
+  }
+
+  return settings as PanelAgentSettings;
+}
+
 export async function getPanelAgentSettings(): Promise<PanelAgentSettings> {
   try {
     const response = await authApi.get(`${PANEL_AGENT_PREFIX}/settings`);
-    return response.data.settings;
+    return readSettingsPayload(response.data);
   } catch (error) {
     throw handleApiError(error, "load panel agent settings", {
       preserveAuthErrorMessage: true,
@@ -131,7 +163,7 @@ export async function updatePanelAgentSettings(
       `${PANEL_AGENT_PREFIX}/settings`,
       input,
     );
-    return response.data.settings;
+    return readSettingsPayload(response.data);
   } catch (error) {
     throw handleApiError(error, "update panel agent settings", {
       preserveAuthErrorMessage: true,

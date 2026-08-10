@@ -99,4 +99,15 @@ describe("AdminPanelAgentSection", () => {
     );
     expect(await screen.findByText("admin.panelAgentEnable")).toBeTruthy();
   });
+
+  it("shows a retryable error instead of blank content when settings are empty", async () => {
+    panelAgentApi.getPanelAgentSettings.mockResolvedValueOnce(undefined);
+
+    render(<AdminPanelAgentSection open onToggle={() => undefined} />);
+
+    expect(await screen.findByText("admin.panelAgentUnavailable")).toBeTruthy();
+    expect(notifications.error).toHaveBeenCalledWith(
+      "admin.panelAgentLoadFailed",
+    );
+  });
 });

@@ -49,6 +49,36 @@ describe("panel agent API", () => {
     expect(settings).toMatchObject({ enabled: true, model: "ops-model" });
   });
 
+  it("accepts a legacy bare settings payload", async () => {
+    api.get.mockResolvedValue({
+      data: {
+        enabled: true,
+        provider: "openai-compatible",
+        baseUrl: "https://api.example.test/v1",
+        model: "ops-model",
+        temperature: 0.2,
+        maxTokens: 1800,
+        multiServerEnabled: true,
+        maxTargets: 4,
+        apiKeyConfigured: true,
+        skills: [],
+      },
+    });
+
+    await expect(getPanelAgentSettings()).resolves.toMatchObject({
+      enabled: true,
+      model: "ops-model",
+    });
+  });
+
+  it("rejects malformed settings responses instead of returning undefined", async () => {
+    api.get.mockResolvedValue({ data: { ok: true } });
+
+    await expect(getPanelAgentSettings()).rejects.toThrow(
+      "Invalid Panel Agent settings response",
+    );
+  });
+
   it("saves settings without returning the API key", async () => {
     api.patch.mockResolvedValue({
       data: {

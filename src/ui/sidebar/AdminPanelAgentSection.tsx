@@ -27,15 +27,19 @@ export function AdminPanelAgentSection({
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [loadAttempted, setLoadAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState<PanelAgentModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
   async function load() {
     setLoading(true);
+    setLoadAttempted(true);
     setLoadError(false);
     try {
-      setSettings(await getPanelAgentSettings());
+      const loaded = await getPanelAgentSettings();
+      if (!loaded) throw new Error("Panel Agent settings response is empty");
+      setSettings(loaded);
     } catch {
       setSettings(null);
       setLoadError(true);
@@ -131,7 +135,7 @@ export function AdminPanelAgentSection({
             {t("common.loading")}
           </div>
         )}
-        {!loading && !settings && loadError && (
+        {!loading && !settings && (loadError || loadAttempted) && (
           <div className="space-y-2 border border-amber-500/40 bg-amber-500/5 p-3">
             <div className="text-xs font-semibold text-foreground">
               {t("admin.panelAgentUnavailable")}
