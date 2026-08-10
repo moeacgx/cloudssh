@@ -86,9 +86,72 @@ architecture() {
     *) fail "不支持的宿主机架构：$(uname -m)" ;;
   esac
 }
+compose() {
+  if [ -n "${DATA_VOLUME_NAME:-}" ] && [ -n "${RECORDINGS_VOLUME_NAME:-}" ]; then
+    CLOUDSSH_DATA_VOLUME="$DATA_VOLUME_NAME" \
+      CLOUDSSH_RECORDINGS_VOLUME="$RECORDINGS_VOLUME_NAME" \
+      docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  else
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  fi
+}
+
+resolve_named_volume_mount() {
+  service="$1"
+  container_id="$2"
+  destination="$3"
+  if ! mount_rows="$(
+    docker inspect --format '{{range .Mounts}}{{printf "%s|%s|%s\n" .Type .Destination .Name}}{{end}}' \
+      "$container_id"
+  )"; then
+    fail "无法读取服务 ${service} 的挂载信息"
+  fi
+
+  matched_count=0
+  matched_type=""
+  matched_name=""
+  old_ifs=$IFS
+  IFS='
+'
+  for mount_row in $mount_rows; do
+    mount_type="${mount_row%%|*}"
+    mount_remainder="${mount_row#*|}"
+    mount_destination="${mount_remainder%%|*}"
+    mount_name="${mount_remainder#*|}"
+    if [ "$mount_destination" = "$destination" ]; then
+      matched_count=$((matched_count + 1))
+      matched_type="$mount_type"
+      matched_name="$mount_name"
+    fi
+  done
+  IFS=$old_ifs
+
+  [ "$matched_count" -eq 1 ] ||
+    fail "服务 ${service} 必须且只能有一个 ${destination} 挂载"
+  [ "$matched_type" = "volume" ] ||
+    fail "服务 ${service} 的 ${destination} 必须使用 Docker 命名卷，避免镜像更新时误挂空目录"
+  [ -n "$matched_name" ] ||
+    fail "服务 ${service} 的 ${destination} 卷名为空"
+  printf '%s' "$matched_name"
+}
+
+verify_preserved_mounts() {
+  container_id="$(compose ps -q cloudssh)"
+  [ -n "$container_id" ] || fail "重启后找不到 cloudssh 容器"
+  data_volume="$(resolve_named_volume_mount cloudssh "$container_id" /app/data)"
+  recordings_volume="$(
+    resolve_named_volume_mount cloudssh "$container_id" \
+      /app/data/session_recordings/guacamole
+  )"
+  [ "$data_volume" = "$DATA_VOLUME_NAME" ] ||
+    fail "更新后数据卷从 ${DATA_VOLUME_NAME} 变成 ${data_volume}，已拒绝确认新容器"
+  [ "$recordings_volume" = "$RECORDINGS_VOLUME_NAME" ] ||
+    fail "更新后录像卷从 ${RECORDINGS_VOLUME_NAME} 变成 ${recordings_volume}，已拒绝确认新容器"
+}
+
 
 health_url() {
-  published_port="$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" port cloudssh 8080 2>/dev/null | sed -n '1p' || true)"
+  published_port="$(compose port cloudssh 8080 2>/dev/null | sed -n '1p' || true)"
   port="${published_port##*:}"
   case "$port" in
     '' | *[!0-9]*)
@@ -113,9 +176,8 @@ wait_for_health() {
 
 restore_previous_image() {
   echo "新镜像未通过健康检查，正在恢复 $PREVIOUS_IMAGE。" >&2
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d guacd >&2
-  CLOUDSSH_IMAGE="$PREVIOUS_IMAGE" \
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+  compose up -d guacd >&2
+  CLOUDSSH_IMAGE="$PREVIOUS_IMAGE" compose \
     up -d --no-deps --force-recreate cloudssh >&2
   wait_for_health "$HEALTH_URL" || {
     echo "回滚后的 CloudSSH 也未通过健康检查；请立即使用备份和 Docker 状态排障。" >&2
@@ -160,6 +222,8 @@ TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cloudssh-image-update.XXXXXX")"
 ROLLBACK_REQUIRED=0
 PREVIOUS_IMAGE=""
 HEALTH_URL=""
+DATA_VOLUME_NAME=""
+RECORDINGS_VOLUME_NAME=""
 trap cleanup EXIT HUP INT TERM
 
 if [ -z "$VERSION" ]; then
@@ -199,27 +263,38 @@ gzip -dc "$TEMP_DIR/$ARCHIVE" | docker load >/dev/null
 [ "$(docker image inspect "$TARGET_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$VERSION" ] ||
   fail "离线镜像版本标签不匹配"
 
-CONTAINER_ID="$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps -q cloudssh)"
+CONTAINER_ID="$(compose ps -q cloudssh)"
 [ -n "$CONTAINER_ID" ] || fail "找不到正在部署的 cloudssh 容器"
 PREVIOUS_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$CONTAINER_ID")"
 [ -n "$PREVIOUS_IMAGE" ] || fail "无法识别当前 CloudSSH 镜像"
 docker image inspect "$PREVIOUS_IMAGE" >/dev/null || fail "当前 CloudSSH 镜像不在本机，拒绝执行无法回滚的更新"
+DATA_VOLUME_NAME="$(resolve_named_volume_mount cloudssh "$CONTAINER_ID" /app/data)"
+RECORDINGS_VOLUME_NAME="$(
+  resolve_named_volume_mount cloudssh "$CONTAINER_ID" \
+    /app/data/session_recordings/guacamole
+)"
+[ "$DATA_VOLUME_NAME" != "$RECORDINGS_VOLUME_NAME" ] ||
+  fail "主数据卷和录像卷不能是同一个 Docker 卷"
+echo "已锁定真实数据卷：${DATA_VOLUME_NAME}；录像卷：${RECORDINGS_VOLUME_NAME}。"
 HEALTH_URL="$(health_url)"
 
 echo "停止写入服务，创建升级前备份。"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-  stop --timeout 60 cloudssh guacd
-if ! sh scripts/cloudssh-backup.sh "$BACKUP_DIR"; then
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" start guacd cloudssh || true
+compose stop --timeout 60 cloudssh guacd
+if ! CLOUDSSH_DATA_VOLUME="$DATA_VOLUME_NAME" \
+  CLOUDSSH_RECORDINGS_VOLUME="$RECORDINGS_VOLUME_NAME" \
+  COMPOSE_FILE="$COMPOSE_FILE" \
+  CLOUDSSH_ENV_FILE="$ENV_FILE" \
+  sh scripts/cloudssh-backup.sh "$BACKUP_DIR"; then
+  compose start guacd cloudssh || true
   fail "升级前备份失败，原容器已尝试重新启动"
 fi
 
 echo "切换到 $TARGET_IMAGE 并重启 CloudSSH。"
 ROLLBACK_REQUIRED=1
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d guacd
-CLOUDSSH_IMAGE="$TARGET_IMAGE" \
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+compose up -d guacd
+CLOUDSSH_IMAGE="$TARGET_IMAGE" compose \
   up -d --no-deps --force-recreate cloudssh
+verify_preserved_mounts
 
 if ! wait_for_health "$HEALTH_URL"; then
   fail "新容器在 ${HEALTH_TIMEOUT_SECONDS} 秒内未通过健康检查"

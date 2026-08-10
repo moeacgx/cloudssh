@@ -58,6 +58,17 @@ describe("CloudSSH 宿主机镜像更新器", () => {
       '"$TARGET_IMAGE" --format \'{{index .Config.Labels "org.opencontainers.image.version"}}\'',
     );
   });
+  it("锁定真实数据卷并用同一卷重建容器", async () => {
+    const updater = await readFile(updaterPath, "utf8");
+
+    expect(updater).toContain("resolve_named_volume_mount");
+    expect(updater).toContain('DATA_VOLUME_NAME="$(resolve_named_volume_mount');
+    expect(updater).toContain('CLOUDSSH_DATA_VOLUME="$DATA_VOLUME_NAME"');
+    expect(updater).toContain(
+      'CLOUDSSH_RECORDINGS_VOLUME="$RECORDINGS_VOLUME_NAME"',
+    );
+    expect(updater).toContain("verify_preserved_mounts");
+  });
 
   it("在切换前备份，并为失败的新容器恢复已运行镜像", async () => {
     const updater = await readFile(updaterPath, "utf8");
@@ -169,9 +180,20 @@ describe("CloudSSH 宿主机镜像更新器", () => {
         dockerMock,
         `#!/bin/sh
 set -eu
-printf '%s\\n' "$*" >> "$MOCK_LOG"
+printf 'volumes=%s/%s %s\n' "${"$"}{CLOUDSSH_DATA_VOLUME:-}" "${"$"}{CLOUDSSH_RECORDINGS_VOLUME:-}" "$*" >> "$MOCK_LOG"
 if [ "$1" = "load" ]; then cat >/dev/null; exit 0; fi
-if [ "$1" = "inspect" ]; then echo "cloudssh-termix:previous"; exit 0; fi
+if [ "$1" = "inspect" ]; then
+  case "$*" in
+    *'.Mounts'*)
+      printf '%s\n' \
+        'volume|/app/data|cloudssh-data-live' \
+        'volume|/app/data/session_recordings/guacamole|cloudssh-recordings-live'
+      ;;
+    *'.Config.Image'*) echo "cloudssh-termix:previous" ;;
+    *) echo "cloudssh-termix:previous" ;;
+  esac
+  exit 0
+fi
 if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
   if [ "$3" = "cloudssh-termix:previous" ] && [ "$#" -eq 3 ]; then exit 0; fi
   case "\${5:-}" in
@@ -233,6 +255,9 @@ exit 1
       expect(
         log.indexOf("up -d --no-deps --force-recreate cloudssh"),
       ).toBeGreaterThan(log.indexOf("backup"));
+      expect(log).toContain(
+        "volumes=cloudssh-data-live/cloudssh-recordings-live compose --env-file docker/.env -f docker/docker-compose.cloudssh.yml up -d --no-deps --force-recreate cloudssh",
+      );
     } finally {
       await rm(root, { force: true, recursive: true });
     }

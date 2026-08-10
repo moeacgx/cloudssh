@@ -73,7 +73,7 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 {
   "schemaVersion": 3,
   "channel": "stable",
-  "version": "2.6.0-cloudssh.38",
+  "version": "2.6.0-cloudssh.39",
   "image": "ghcr.io/moeacgx/cloudssh",
   "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "revision": "0123456789abcdef0123456789abcdef01234567",
@@ -115,12 +115,13 @@ cd /opt/cloudssh
 sh scripts/cloudssh-host-image-update.sh
 
 # 固定升级到指定正式版本
-sh scripts/cloudssh-host-image-update.sh 2.6.0-cloudssh.38
+sh scripts/cloudssh-host-image-update.sh 2.6.0-cloudssh.39
 ```
 
 脚本需要 `curl`、`docker`、`gzip` 与 `sha256sum`（或 `shasum`），并且要求当前镜像仍在本机，
 以保证失败时能够回滚。它只在宿主机调用 Docker；CloudSSH 容器和管理面板都不会挂载或暴露
 Docker Socket。
+镜像更新器会先读取当前容器的真实 `/app/data` 与录像 Docker 命名卷，后续备份、重建和回滚都强制复用这两个卷；新容器健康前还会再次核对挂载卷名，不一致时拒绝确认，避免因 `.env`、Compose 目录或默认卷名变化误挂空卷造成“数据丢失”假象。
 日常推送到 `main` 时，`.github/workflows/cloudssh-docker.yml` 会用缓存优先的多架构 Buildx
 直接推送 `ghcr.io/moeacgx/cloudssh` 镜像；正式 Release 仍由 `cloudssh-release.yml`
 保留严格的离线包、校验和不可变 Release 链路。

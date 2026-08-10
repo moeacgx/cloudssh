@@ -3,6 +3,7 @@ set -eu
 umask 077
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker/docker-compose.cloudssh.yml}"
+ENV_FILE="${CLOUDSSH_ENV_FILE:-docker/.env}"
 OUTPUT_DIR="${1:-backups}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARCHIVE="cloudssh-state-${TIMESTAMP}.tar.gz"
@@ -24,6 +25,14 @@ fail() {
   echo "备份失败：$*" >&2
   exit 2
 }
+compose() {
+  if [ -f "$ENV_FILE" ]; then
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  else
+    docker compose -f "$COMPOSE_FILE" "$@"
+  fi
+}
+
 
 resolve_volume_mount() {
   service="$1"
@@ -73,7 +82,7 @@ resolve_volume_mount() {
 
 for service in $WRITER_SERVICES; do
   if ! container_id="$(
-    docker compose -f "$COMPOSE_FILE" ps -a -q "$service"
+    compose ps -a -q "$service"
   )"; then
     fail "无法查询 Compose 服务 ${service} 的状态，未创建任何备份。"
   fi
