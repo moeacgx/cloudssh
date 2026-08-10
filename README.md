@@ -23,7 +23,7 @@ CloudSSH 是面向个人和小团队的自托管云 SSH 与 Agent 运维平台�
 ## 界面预览
 
 <!-- prettier-ignore -->
-<p align="center"><img src="docs/repo-images/panel-agent-ssh-copilot.png" alt="面板在线 Agent 与人工共管同一个 SSH 终端" width="49%" /> <img src="docs/repo-images/local-agent-panel-copilot.png" alt="本地 Agent 接入与面板 Agent 侧栏同时工作" width="49%" /></p>
+<p align="center"><img src="docs/repo-images/panel-agent-ssh-copilot.png" alt="面板在线 Agent 与人工共管同一个 SSH 终端" width="58%" /> <img src="docs/repo-images/local-agent-panel-copilot.png" alt="tmux 固定会话监控器与 SSH 终端" width="38%" /></p>
 
 ## ✨ CloudSSH 强化了什么
 
