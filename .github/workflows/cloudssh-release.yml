@@ -267,13 +267,19 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE="$CLOUDSSH_IMAGE@$DIGEST"
+          MANIFEST_JSON="$(docker buildx imagetools inspect "$SOURCE" --raw)"
           for pair in amd64:amd64 arm64:arm64; do
             docker_arch="${pair%%:*}"
             runtime_arch="${pair##*:}"
             local_tag="cloudssh-termix:$VERSION"
             archive="cloudssh-image-$VERSION-linux-$runtime_arch.tar.gz"
-            docker pull --platform "linux/$docker_arch" "$SOURCE"
-            docker tag "$SOURCE" "$local_tag"
+            arch_digest="$(printf '%s' "$MANIFEST_JSON" | jq -r --arg arch "$docker_arch" '
+              [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest] | if length == 1 then .[0] else empty end
+            ')"
+            [[ "$arch_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            arch_source="$CLOUDSSH_IMAGE@$arch_digest"
+            docker pull "$arch_source"
+            docker tag "$arch_source" "$local_tag"
             [[ "$(docker image inspect "$local_tag" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
             [[ "$(docker image inspect "$local_tag" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" == "$VERSION" ]]
             docker image inspect "$local_tag" --format '{{.Id}}' > "$archive.id"

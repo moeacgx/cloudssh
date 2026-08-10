@@ -151,6 +151,9 @@ describe("CloudSSH 正式发版工作流", () => {
     expect(publishStep).toBeGreaterThan(uploadStep);
     expect(workflow).toContain("for pair in amd64:amd64 arm64:arm64");
     expect(workflow).toContain(
+      'docker buildx imagetools inspect "$SOURCE" --raw',
+    );
+    expect(workflow).toContain(
       "cloudssh-image-$VERSION-linux-$runtime_arch.tar.gz",
     );
     expect(workflow).toContain("cloudssh-image-$VERSION-linux-*.tar.gz.sha256");
