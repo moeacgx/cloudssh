@@ -186,6 +186,7 @@ export function HostManager({
               sourceFolder: host.folder ?? "",
               name: projectServer?.name || host.name,
               folder: projectServer?.folder ?? "",
+              tags: projectServer?.tags ?? host.tags,
               networkInfo: projectServer?.networkInfo ?? host.networkInfo,
               linkedProjectCount: projectServer?.linkedProjectCount ?? 1,
               canDeleteFromAllProjects:

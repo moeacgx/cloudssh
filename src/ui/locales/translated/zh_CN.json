@@ -652,7 +652,8 @@
     "instructionPlaceholder": "描述要做的运维任务，例如：检查所有选中服务器上 nginx 失败的原因，并给出最安全的命令。",
     "generate": "分析并生成命令建议",
     "generating": "分析中...",
-    "adminConfigRequired": "面板 Agent 未启用或模型未配置。请打开管理设置 > 面板 Agent。",
+    "adminConfigRequired": "面板 Agent 未启用或 API 连接未配置。请打开管理设置 > 面板 Agent。",
+    "modelRequired": "尚未选择面板 Agent 模型。请在面板 Agent 或管理设置中选择一个模型。",
     "settingsLoadFailed": "面板 Agent 设置加载失败",
     "instructionRequired": "请输入 Agent 任务",
     "noTargetsSelected": "至少选择一个 SSH 终端",
@@ -678,7 +679,11 @@
     "toolFailed": "工具执行失败",
     "toolBlocked": "工具已拦截",
     "toolRoundLimit": "已达到工具调用轮次上限。继续发送消息可接着处理。",
-    "chatFailed": "面板 Agent 对话失败"
+    "chatFailed": "面板 Agent 对话失败",
+    "chatStopped": "已停止面板 Agent 请求",
+    "retry": "重试",
+    "stop": "停止",
+    "clear": "清理对话"
   },
   "workspace": {
     "personalSpace": "个人空间",
@@ -3849,6 +3854,8 @@
         "fontSizeLabel": "字体大小",
         "accentColorLabel": "强调色",
         "settingsTerminal": "终端",
+        "terminalThemeLabel": "终端主题",
+        "terminalThemeDesc": "独立于应用主题的默认 SSH 终端配色。单个主机的主题设置仍会优先覆盖。",
         "commandAutocomplete": "命令自动补全",
         "commandAutocompleteDesc": "输入时显示自动补全",
         "keyboardShortcuts": "键盘快捷键",

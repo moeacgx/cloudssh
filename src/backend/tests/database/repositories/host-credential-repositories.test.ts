@@ -219,6 +219,7 @@ describe("HostRepository and CredentialRepository", () => {
         credential_id TEXT,
         alias TEXT,
         folder TEXT,
+        tags TEXT,
         added_by TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (project_id, host_id),
@@ -792,6 +793,7 @@ describe("HostRepository and CredentialRepository", () => {
         projectHostId,
         alias: "Personal alias",
         folder: "Production / Web",
+        tags: "personal-tag",
       },
     );
 
@@ -802,9 +804,13 @@ describe("HostRepository and CredentialRepository", () => {
     ).toEqual({ name: "new-name", folder: "Production" });
     expect(
       repo.sqlite
-        .prepare("SELECT alias, folder FROM project_hosts WHERE id = ?")
+        .prepare("SELECT alias, folder, tags FROM project_hosts WHERE id = ?")
         .get(projectHostId),
-    ).toEqual({ alias: "Personal alias", folder: "Production / Web" });
+    ).toEqual({
+      alias: "Personal alias",
+      folder: "Production / Web",
+      tags: "personal-tag",
+    });
     expect(
       repo.sqlite
         .prepare(
@@ -913,6 +919,7 @@ describe("HostRepository and CredentialRepository", () => {
         projectHostId,
         alias: "团队入口",
         folder: "生产 / Web",
+        tags: "team-tag",
       },
     );
 
@@ -923,9 +930,9 @@ describe("HostRepository and CredentialRepository", () => {
     ).toEqual({ name: "stable-global-name", folder: "global-folder" });
     expect(
       repo.sqlite
-        .prepare("SELECT alias, folder FROM project_hosts WHERE id = ?")
+        .prepare("SELECT alias, folder, tags FROM project_hosts WHERE id = ?")
         .get(projectHostId),
-    ).toEqual({ alias: "团队入口", folder: "生产 / Web" });
+    ).toEqual({ alias: "团队入口", folder: "生产 / Web", tags: "team-tag" });
     expect(
       repo.sqlite
         .prepare(

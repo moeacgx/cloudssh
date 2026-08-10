@@ -29,6 +29,7 @@ export type WorkspaceProjectServer = {
   port: number;
   connectionType: string;
   folder: string | null;
+  tags?: string[];
   /** 主机当前关联的项目数量，用于区分解除当前关联和彻底删除。 */
   linkedProjectCount?: number;
   /** 仅主机所有者可以从所有项目删除底层主机。 */

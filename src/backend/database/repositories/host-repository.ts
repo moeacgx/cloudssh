@@ -24,6 +24,7 @@ export interface PersonalProjectHostMetadataUpdate {
   projectHostId: number;
   alias: string | null;
   folder: string | null;
+  tags?: string | null;
 }
 
 export interface ProjectHostMetadataUpdate extends PersonalProjectHostMetadataUpdate {
@@ -33,6 +34,7 @@ export interface ProjectHostMetadataUpdate extends PersonalProjectHostMetadataUp
 export interface PersonalProjectHostCreateMetadata {
   alias: string | null;
   folder: string | null;
+  tags?: string | null;
   addedBy: string;
 }
 
@@ -207,6 +209,7 @@ export class HostRepository {
           hostId: createdHost.id,
           alias: metadata.alias,
           folder: metadata.folder,
+          tags: metadata.tags ?? null,
           addedBy: metadata.addedBy,
         })
         .returning({ id: projectHosts.id })
@@ -444,8 +447,13 @@ export class HostRepository {
           .onConflictDoNothing()
           .run();
       }
+      const metadataUpdate = {
+        alias: metadata.alias,
+        folder: metadata.folder,
+        ...(metadata.tags !== undefined ? { tags: metadata.tags } : {}),
+      };
       tx.update(projectHosts)
-        .set({ alias: metadata.alias, folder: metadata.folder })
+        .set(metadataUpdate)
         .where(
           and(
             eq(projectHosts.id, link.id),

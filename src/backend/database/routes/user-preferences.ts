@@ -21,6 +21,7 @@ const pickPreferences = (row?: UserPreferenceRecord | null) => ({
   accentColor: row?.accentColor ?? null,
   language: row?.language ?? null,
   storageMode: row?.storageMode ?? "cloud",
+  terminalDefaultTheme: row?.terminalDefaultTheme ?? null,
   commandAutocomplete: row?.commandAutocomplete ?? null,
   commandPaletteEnabled: row?.commandPaletteEnabled ?? null,
   showHostTags: row?.showHostTags ?? null,
@@ -68,6 +69,9 @@ const pickPreferences = (row?: UserPreferenceRecord | null) => ({
  *                   type: string
  *                   nullable: true
  *                 storageMode:
+ *                   type: string
+ *                   nullable: true
+ *                 terminalDefaultTheme:
  *                   type: string
  *                   nullable: true
  *                 commandAutocomplete:
@@ -160,6 +164,8 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
  *                 type: string
  *               storageMode:
  *                 type: string
+ *               terminalDefaultTheme:
+ *                 type: string
  *               commandAutocomplete:
  *                 type: boolean
  *               commandPaletteEnabled:
@@ -205,6 +211,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     accentColor,
     language,
     storageMode,
+    terminalDefaultTheme,
     commandAutocomplete,
     commandPaletteEnabled,
     showHostTags,
@@ -227,6 +234,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     accentColor?: string | null;
     language?: string | null;
     storageMode?: string | null;
+    terminalDefaultTheme?: string | null;
     commandAutocomplete?: boolean | null;
     commandPaletteEnabled?: boolean | null;
     showHostTags?: boolean | null;
@@ -263,6 +271,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     accentColor,
     language,
     storageMode,
+    terminalDefaultTheme,
     hiddenRailTabs,
     statusColorScheme,
     customThemes,
@@ -347,6 +356,8 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
   if (accentColor !== undefined) updates.accentColor = accentColor;
   if (language !== undefined) updates.language = language;
   if (storageMode !== undefined) updates.storageMode = storageMode;
+  if (terminalDefaultTheme !== undefined)
+    updates.terminalDefaultTheme = terminalDefaultTheme;
   if (hiddenRailTabs !== undefined) updates.hiddenRailTabs = hiddenRailTabs;
   if (commandAutocomplete !== undefined)
     updates.commandAutocomplete = commandAutocomplete;

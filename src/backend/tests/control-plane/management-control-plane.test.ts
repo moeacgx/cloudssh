@@ -930,6 +930,7 @@ describe("云 SSH 控制面写接口", () => {
         body: JSON.stringify({
           alias: "生产入口",
           folder: "平台 / Web",
+          tags: ["canvas", "test"],
         }),
       },
     );
@@ -940,6 +941,7 @@ describe("云 SSH 控制面写接口", () => {
       name: "生产入口",
       sourceName: "Owner host",
       folder: "平台 / Web",
+      tags: ["canvas", "test"],
     });
 
     const firstServers = (
@@ -956,6 +958,7 @@ describe("云 SSH 控制面写接口", () => {
       name: "生产入口",
       sourceName: "Owner host",
       folder: "平台 / Web",
+      tags: ["canvas", "test"],
     });
     expect(secondServers[0].folder).toBe("测试");
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -6,8 +6,10 @@ import {
   RefreshCw,
   Send,
   Server,
+  Square,
   ShieldCheck,
   Terminal,
+  Trash2,
   Wrench,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -26,10 +28,35 @@ import {
   type PanelAgentTargetInput,
   type PanelAgentToolCall,
 } from "@/api/panel-agent-api";
+import { MarkdownRenderer } from "@/features/file-manager/components/MarkdownRenderer";
 import type { Tab } from "@/types/ui-types";
 
 const TOOL_ROUND_LIMIT = 6;
 const COMMAND_OBSERVE_DELAY_MS = 1_200;
+
+const PANEL_AGENT_SELECTED_MODEL_STORAGE_KEY = "panelAgentSelectedModel";
+
+function readStoredSelectedModel(): string {
+  if (typeof window === "undefined") return "";
+  return (
+    window.localStorage
+      .getItem(PANEL_AGENT_SELECTED_MODEL_STORAGE_KEY)
+      ?.trim() ?? ""
+  );
+}
+
+function writeStoredSelectedModel(model: string) {
+  const value = model.trim();
+  if (value) {
+    window.localStorage.setItem(PANEL_AGENT_SELECTED_MODEL_STORAGE_KEY, value);
+  } else {
+    window.localStorage.removeItem(PANEL_AGENT_SELECTED_MODEL_STORAGE_KEY);
+  }
+}
+
+function panelModelForSettings(settings: PanelAgentSettings): string {
+  return readStoredSelectedModel() || settings.model;
+}
 
 type ToolResultPayload = {
   ok: boolean;
@@ -44,6 +71,21 @@ type ToolResultPayload = {
   connected?: boolean;
   recentOutput?: string;
 };
+
+type PanelAgentUiMessage = PanelAgentChatMessage & {
+  id: string;
+  error?: string;
+};
+
+function createMessageId() {
+  return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function toApiMessages(
+  messages: PanelAgentUiMessage[],
+): PanelAgentChatMessage[] {
+  return messages.map(({ id: _id, error: _error, ...message }) => message);
+}
 
 function sleep(ms: number) {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -107,14 +149,15 @@ export function PanelAgentPanel({
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [selectedTabIds, setSelectedTabIds] = useState<Set<string>>(new Set());
+  const [messages, setMessages] = useState<PanelAgentUiMessage[]>([]);
+  const [working, setWorking] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(readStoredSelectedModel);
+  const [models, setModels] = useState<PanelAgentModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
     new Set(),
   );
-  const [messages, setMessages] = useState<PanelAgentChatMessage[]>([]);
-  const [working, setWorking] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("");
-  const [models, setModels] = useState<PanelAgentModel[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const activeTerminalTab = useMemo(
     () => terminalTabs.find((tab) => tab.id === activeTabId) ?? terminalTabs[0],
@@ -132,7 +175,9 @@ export function PanelAgentPanel({
     try {
       const loaded = await getPanelAgentSettings();
       setSettings(loaded);
-      setSelectedModel(loaded.model);
+      setSelectedModel((current) =>
+        current.trim() ? current : panelModelForSettings(loaded),
+      );
       setSelectedSkillIds(
         new Set(
           loaded.skills
@@ -156,12 +201,17 @@ export function PanelAgentPanel({
     try {
       const loaded = await getPanelAgentModels();
       setModels(loaded);
-      if (!selectedModel && loaded[0]) setSelectedModel(loaded[0].id);
+      if (!selectedModel && loaded[0]) updateSelectedModel(loaded[0].id);
     } catch {
       toast.error(t("panelAgent.modelsLoadFailed"));
     } finally {
       setModelsLoading(false);
     }
+  }
+
+  function updateSelectedModel(model: string) {
+    setSelectedModel(model);
+    writeStoredSelectedModel(model);
   }
 
   function toggleTab(tabId: string) {
@@ -195,7 +245,7 @@ export function PanelAgentPanel({
           sessionId: context?.sessionId ?? tab.persistentSessionId ?? null,
           agentSessionId: context?.agentSessionId ?? tab.agentSessionId ?? null,
           connected: context?.connected ?? handle?.isConnected?.() ?? false,
-          recentOutput: handle?.getRecentOutput?.(160) ?? "",
+          recentOutput: handle?.getRecentOutput?.(500) ?? "",
         };
       });
   }
@@ -300,33 +350,99 @@ export function PanelAgentPanel({
     });
   }
 
-  async function continueConversation(seedMessages: PanelAgentChatMessage[]) {
+  async function continueConversation(
+    seedMessages: PanelAgentUiMessage[],
+    signal: AbortSignal,
+  ) {
     let history = seedMessages;
     for (let round = 0; round < TOOL_ROUND_LIMIT; round += 1) {
-      const response = await sendPanelAgentChat({
-        messages: history,
-        skillIds: [...selectedSkillIds],
-        targets: selectedTargets(),
-        model: selectedModel.trim() || undefined,
-      });
-      const assistantMessage: PanelAgentChatMessage = response.message;
+      signal.throwIfAborted();
+      const response = await sendPanelAgentChat(
+        {
+          messages: toApiMessages(history),
+          skillIds: [...selectedSkillIds],
+          targets: selectedTargets(),
+          model: selectedModel.trim() || undefined,
+        },
+        signal,
+      );
+      signal.throwIfAborted();
+      const assistantMessage: PanelAgentUiMessage = {
+        ...response.message,
+        id: createMessageId(),
+      };
       history = [...history, assistantMessage];
       setMessages(history);
-      if (assistantMessage.toolCalls?.length === 0) return;
+      if ((assistantMessage.toolCalls?.length ?? 0) === 0) return;
 
       for (const toolCall of assistantMessage.toolCalls ?? []) {
+        signal.throwIfAborted();
         const result = await executeToolCall(toolCall);
-        history = [...history, result];
+        signal.throwIfAborted();
+        history = [...history, { ...result, id: createMessageId() }];
         setMessages(history);
       }
     }
 
-    const limitMessage: PanelAgentChatMessage = {
+    const limitMessage: PanelAgentUiMessage = {
+      id: createMessageId(),
       role: "assistant",
       content: t("panelAgent.toolRoundLimit"),
       toolCalls: [],
     };
     setMessages([...history, limitMessage]);
+  }
+
+  function chatErrorMessage(error: unknown) {
+    const code = (error as { code?: unknown })?.code;
+    const name = (error as { name?: unknown })?.name;
+    if (
+      code === "ERR_CANCELED" ||
+      name === "AbortError" ||
+      name === "CanceledError"
+    ) {
+      return t("panelAgent.chatStopped");
+    }
+    return error instanceof Error ? error.message : t("panelAgent.chatFailed");
+  }
+
+  async function startConversation(
+    seedMessages: PanelAgentUiMessage[],
+    userMessageId: string,
+  ) {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setWorking(true);
+    setMessages(
+      seedMessages.map((message) =>
+        message.id === userMessageId
+          ? { ...message, error: undefined }
+          : message,
+      ),
+    );
+    try {
+      await continueConversation(
+        seedMessages.map((message) =>
+          message.id === userMessageId
+            ? { ...message, error: undefined }
+            : message,
+        ),
+        controller.signal,
+      );
+    } catch (error) {
+      const message = chatErrorMessage(error);
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === userMessageId ? { ...item, error: message } : item,
+        ),
+      );
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+        setWorking(false);
+      }
+    }
   }
 
   async function handleSend() {
@@ -335,20 +451,38 @@ export function PanelAgentPanel({
       toast.error(t("panelAgent.instructionRequired"));
       return;
     }
-    const nextMessages: PanelAgentChatMessage[] = [
-      ...messages,
-      { role: "user", content },
-    ];
+    const userMessage: PanelAgentUiMessage = {
+      id: createMessageId(),
+      role: "user",
+      content,
+    };
+    const nextMessages = [...messages, userMessage];
     setDraft("");
-    setWorking(true);
     setMessages(nextMessages);
-    try {
-      await continueConversation(nextMessages);
-    } catch {
-      toast.error(t("panelAgent.chatFailed"));
-    } finally {
-      setWorking(false);
-    }
+    await startConversation(nextMessages, userMessage.id);
+  }
+
+  function retryFromMessage(index: number) {
+    const message = messages[index];
+    if (!message || message.role !== "user") return;
+    const nextMessages = messages
+      .slice(0, index + 1)
+      .map((item) =>
+        item.id === message.id ? { ...item, error: undefined } : item,
+      );
+    setMessages(nextMessages);
+    void startConversation(nextMessages, message.id);
+  }
+
+  function stopConversation() {
+    abortControllerRef.current?.abort();
+  }
+
+  function clearConversation() {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setWorking(false);
+    setMessages([]);
   }
 
   function renderToolMessage(message: PanelAgentChatMessage, index: number) {
@@ -392,11 +526,11 @@ export function PanelAgentPanel({
     );
   }
 
-  function renderMessage(message: PanelAgentChatMessage, index: number) {
+  function renderMessage(message: PanelAgentUiMessage, index: number) {
     if (message.role === "tool") return renderToolMessage(message, index);
     return (
       <div
-        key={`${message.role}-${index}`}
+        key={message.id}
         className={`border p-3 text-xs ${roleClass(message.role)}`}
       >
         <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -405,9 +539,24 @@ export function PanelAgentPanel({
             : t("panelAgent.agent")}
         </div>
         {message.content && (
-          <p className="whitespace-pre-wrap leading-5 text-foreground">
-            {message.content}
-          </p>
+          <div className="text-xs leading-5 text-foreground [&_p:last-child]:mb-0 [&_pre]:mb-0">
+            <MarkdownRenderer compact content={message.content} />
+          </div>
+        )}
+        {message.error && (
+          <div className="mt-2 space-y-2 border border-destructive/30 bg-destructive/5 p-2 text-[11px] text-destructive">
+            <p className="whitespace-pre-wrap leading-5">{message.error}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={() => retryFromMessage(index)}
+              disabled={working}
+            >
+              {t("panelAgent.retry")}
+            </Button>
+          </div>
         )}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="mt-2 space-y-1">
@@ -428,19 +577,23 @@ export function PanelAgentPanel({
 
   const selectedCount = selectedTabIds.size;
   const activeSkills = settings?.skills.filter((skill) => skill.enabled) ?? [];
+  const hasSelectedModel = Boolean(selectedModel.trim() || settings?.model);
+  const adminConfigMissing = Boolean(
+    settings &&
+    (!settings.enabled || !settings.apiKeyConfigured || !settings.baseUrl),
+  );
+  const modelMissing = Boolean(
+    settings && !adminConfigMissing && !hasSelectedModel,
+  );
   const chatDisabled =
-    working ||
-    !settings?.enabled ||
-    !settings.apiKeyConfigured ||
-    !settings.baseUrl ||
-    !(selectedModel.trim() || settings.model);
+    working || adminConfigMissing || modelMissing || !settings;
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col ${embedded ? "bg-background" : "bg-sidebar"}`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${embedded ? "bg-background" : "bg-sidebar"}`}
     >
       {!embedded && (
-        <div className="border-b border-border p-3">
+        <div className="shrink-0 border-b border-border p-3">
           <div className="flex items-center gap-2">
             <div className="flex size-8 items-center justify-center border border-accent-brand/30 bg-accent-brand/10 text-accent-brand">
               <Bot className="size-4" />
@@ -456,8 +609,8 @@ export function PanelAgentPanel({
           </div>
         </div>
       )}
-      <div className="flex-1 min-h-0 space-y-3 overflow-y-auto p-3">
-        <section className="border border-border bg-card p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
+        <section className="shrink-0 border border-border bg-card p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               <Server className="size-3.5" />
@@ -517,7 +670,7 @@ export function PanelAgentPanel({
           )}
         </section>
 
-        <section className="border border-border bg-card p-3">
+        <section className="shrink-0 border border-border bg-card p-3">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             <ShieldCheck className="size-3.5" />
             {t("panelAgent.skills")}
@@ -542,7 +695,7 @@ export function PanelAgentPanel({
           )}
         </section>
 
-        <section className="border border-border bg-card p-3">
+        <section className="shrink-0 border border-border bg-card p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               <BrainCircuit className="size-3.5" />
@@ -569,7 +722,7 @@ export function PanelAgentPanel({
           </div>
           <Input
             value={selectedModel}
-            onChange={(event) => setSelectedModel(event.target.value)}
+            onChange={(event) => updateSelectedModel(event.target.value)}
             placeholder={settings?.model || "gpt-4.1-mini"}
           />
           {models.length > 0 && (
@@ -580,7 +733,7 @@ export function PanelAgentPanel({
                   ? selectedModel
                   : ""
               }
-              onChange={(event) => setSelectedModel(event.target.value)}
+              onChange={(event) => updateSelectedModel(event.target.value)}
             >
               <option value="">{t("panelAgent.modelSelectPlaceholder")}</option>
               {models.map((model) => (
@@ -592,12 +745,27 @@ export function PanelAgentPanel({
           )}
         </section>
 
-        <section className="space-y-2 border border-border bg-card p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            <BrainCircuit className="size-3.5" />
-            {t("panelAgent.chat")}
+        <section className="flex min-h-0 flex-1 flex-col gap-2 border border-border bg-card p-3">
+          <div className="flex shrink-0 items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <BrainCircuit className="size-3.5" />
+              {t("panelAgent.chat")}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={clearConversation}
+              disabled={messages.length === 0 && !working}
+            >
+              <Trash2 className="size-3" />
+              {t("panelAgent.clear")}
+            </Button>
           </div>
-          <div className="min-h-48 space-y-2">
+          <div
+            data-testid="panel-agent-message-list"
+            className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1"
+          >
             {messages.length === 0 ? (
               <div className="border border-dashed border-border p-4 text-center text-xs leading-5 text-muted-foreground">
                 {t("panelAgent.chatEmpty")}
@@ -617,25 +785,42 @@ export function PanelAgentPanel({
             onChange={(event) => setDraft(event.target.value)}
             placeholder={t("panelAgent.chatPlaceholder")}
             rows={4}
+            className="shrink-0"
           />
-          <Button
-            type="button"
-            className="w-full"
-            onClick={handleSend}
-            disabled={chatDisabled}
+          <div
+            data-testid="panel-agent-composer"
+            className="flex shrink-0 gap-2"
           >
-            <Send className="size-3.5" />
-            {working ? t("panelAgent.working") : t("panelAgent.send")}
-          </Button>
-          {settings &&
-            (!settings.enabled ||
-              !settings.apiKeyConfigured ||
-              !settings.baseUrl ||
-              !(selectedModel.trim() || settings.model)) && (
-              <p className="text-[11px] leading-5 text-amber-600">
-                {t("panelAgent.adminConfigRequired")}
-              </p>
+            <Button
+              type="button"
+              className="flex-1"
+              onClick={handleSend}
+              disabled={chatDisabled}
+            >
+              <Send className="size-3.5" />
+              {t("panelAgent.send")}
+            </Button>
+            {working && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={stopConversation}
+              >
+                <Square className="size-3.5" />
+                {t("panelAgent.stop")}
+              </Button>
             )}
+          </div>
+          {adminConfigMissing && (
+            <p className="shrink-0 text-[11px] leading-5 text-amber-600">
+              {t("panelAgent.adminConfigRequired")}
+            </p>
+          )}
+          {modelMissing && (
+            <p className="shrink-0 text-[11px] leading-5 text-amber-600">
+              {t("panelAgent.modelRequired")}
+            </p>
+          )}
         </section>
       </div>
     </div>

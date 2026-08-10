@@ -632,6 +632,7 @@ async function initializeCompleteDatabase(): Promise<void> {
         font_size TEXT,
         accent_color TEXT,
         language TEXT,
+        terminal_default_theme TEXT,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
@@ -845,6 +846,7 @@ const migrateSchema = () => {
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
   addColumnIfNotExists("user_preferences", "storage_mode", "TEXT");
+  addColumnIfNotExists("user_preferences", "terminal_default_theme", "TEXT");
   addColumnIfNotExists("user_preferences", "command_autocomplete", "INTEGER");
   addColumnIfNotExists("user_preferences", "command_palette_enabled", "INTEGER");
   addColumnIfNotExists("user_preferences", "show_host_tags", "INTEGER");

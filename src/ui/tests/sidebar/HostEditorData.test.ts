@@ -335,11 +335,13 @@ describe("project-scoped host metadata", () => {
       ...buildHostEditorPayload(createHostEditorForm(null), sshOnly),
       name: "项目入口",
       folder: "生产 / Web",
+      tags: ["global-tag"],
     };
     const host = {
       id: "7",
       name: "项目入口",
       folder: "生产 / Web",
+      tags: ["existing-global"],
       sourceName: "Global host",
       sourceFolder: "Shared inventory",
     } as Host;
@@ -347,6 +349,7 @@ describe("project-scoped host metadata", () => {
     expect(preserveGlobalHostMetadata(payload, host)).toMatchObject({
       name: "Global host",
       folder: "Shared inventory",
+      tags: ["existing-global"],
     });
     expect(payload).toMatchObject({
       name: "项目入口",
@@ -359,11 +362,13 @@ describe("project-scoped host metadata", () => {
       ...buildHostEditorPayload(createHostEditorForm(null), sshOnly),
       name: "个人主机",
       folder: "个人 / 生产",
+      tags: ["test"],
     };
 
     expect(buildProjectHostMetadataInput(payload, "personal")).toEqual({
       alias: null,
       folder: "个人 / 生产",
+      tags: ["test"],
     });
   });
 
@@ -372,11 +377,13 @@ describe("project-scoped host metadata", () => {
       ...buildHostEditorPayload(createHostEditorForm(null), sshOnly),
       name: "项目入口",
       folder: "团队 / 生产",
+      tags: ["canvas", "test"],
     };
 
     expect(buildProjectHostMetadataInput(payload, "team")).toEqual({
       alias: "项目入口",
       folder: "团队 / 生产",
+      tags: ["canvas", "test"],
     });
   });
 });

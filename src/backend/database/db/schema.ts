@@ -943,6 +943,7 @@ export const userPreferences = sqliteTable("user_preferences", {
   accentColor: text("accent_color"),
   language: text("language"),
   storageMode: text("storage_mode"),
+  terminalDefaultTheme: text("terminal_default_theme"),
   commandAutocomplete: integer("command_autocomplete", { mode: "boolean" }),
   commandPaletteEnabled: integer("command_palette_enabled", { mode: "boolean" }),
   showHostTags: integer("show_host_tags", { mode: "boolean" }),
@@ -1444,6 +1445,7 @@ export const projectHosts = sqliteTable(
     ),
     alias: text("alias"),
     folder: text("folder"),
+    tags: text("tags"),
     addedBy: text("added_by").references(() => users.id, {
       onDelete: "set null",
     }),

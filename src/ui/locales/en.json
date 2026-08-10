@@ -652,7 +652,8 @@
     "instructionPlaceholder": "Describe the operation, for example: check why nginx is failing on all selected servers and propose the safest commands.",
     "generate": "Analyze and propose commands",
     "generating": "Analyzing...",
-    "adminConfigRequired": "Panel Agent is disabled or the model is not configured. Open Admin Settings > Panel Agent.",
+    "adminConfigRequired": "Panel Agent is disabled or the API connection is not configured. Open Admin Settings > Panel Agent.",
+    "modelRequired": "Panel Agent model is not selected. Pick a model in Panel Agent or Admin Settings.",
     "settingsLoadFailed": "Failed to load Panel Agent settings",
     "instructionRequired": "Enter a task for the Agent",
     "noTargetsSelected": "Select at least one SSH terminal",
@@ -678,7 +679,11 @@
     "toolFailed": "Tool failed",
     "toolBlocked": "Tool blocked",
     "toolRoundLimit": "Stopped after the tool round limit. Send another message to continue.",
-    "chatFailed": "Panel Agent chat failed"
+    "chatFailed": "Panel Agent chat failed",
+    "chatStopped": "Panel Agent request stopped",
+    "retry": "Retry",
+    "stop": "Stop",
+    "clear": "Clear"
   },
   "workspace": {
     "personalSpace": "Personal space",
@@ -3849,6 +3854,8 @@
         "fontSizeLabel": "Font Size",
         "accentColorLabel": "Accent Color",
         "settingsTerminal": "Terminal",
+        "terminalThemeLabel": "Terminal Theme",
+        "terminalThemeDesc": "Default SSH terminal colors independent from the app theme. Host-specific themes still override this.",
         "commandAutocomplete": "Command Autocomplete",
         "commandAutocompleteDesc": "Show autocomplete while typing",
         "keyboardShortcuts": "Keyboard Shortcuts",

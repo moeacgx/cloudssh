@@ -441,4 +441,89 @@ describe("Panel Agent routes", () => {
     expect(request.messages[1].content).not.toContain("secret-token");
     expect(request.messages[1].content).toContain("token=[REDACTED]");
   });
+
+  it("falls back to chat without tools when the model rejects tool calls", async () => {
+    const store = new MemorySettingsStore();
+    store.values.set(
+      "panel_agent_settings_v1",
+      JSON.stringify({
+        enabled: true,
+        provider: "openai-compatible",
+        baseUrl: "https://api.example.test/v1",
+        model: "ops-model",
+        temperature: 0.2,
+        maxTokens: 1024,
+        multiServerEnabled: true,
+        maxTargets: 4,
+        skills: [],
+      }),
+    );
+    store.values.set("panel_agent_api_key", "secret-key");
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("<html><title>tools unsupported</title></html>", {
+          status: 400,
+          headers: { "content-type": "text/html" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              { message: { content: "工具不可用，请手动执行 status。" } },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    runtime = await startRouter(store, fetchImpl);
+
+    const response = await fetch(`${runtime.baseUrl}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "检查状态" }],
+        targets: [],
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message.content).toBe("工具不可用，请手动执行 status。");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const firstRequest = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    const secondRequest = JSON.parse(fetchImpl.mock.calls[1][1].body as string);
+    expect(firstRequest.tools).toEqual(expect.any(Array));
+    expect(secondRequest.tools).toBeUndefined();
+    expect(secondRequest.messages[0].content).toContain(
+      "Tool calling is unavailable",
+    );
+  });
+
+  it("returns readable upstream details when model listing fails", async () => {
+    const store = new MemorySettingsStore();
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("<html><title>404 Not Found</title></html>", {
+          status: 404,
+          headers: { "content-type": "text/html" },
+        }),
+    );
+    runtime = await startRouter(store, fetchImpl);
+
+    const response = await fetch(`${runtime.baseUrl}/models`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: "https://api.example.test/v1",
+        apiKey: "draft-key",
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.code).toBe("MODEL_LIST_FAILED");
+    expect(body.detail).toBe("HTTP 404: 404 Not Found");
+  });
 });

@@ -87,6 +87,14 @@ import type { ApiKey } from "@/main-axios";
 import { useTheme } from "@/components/theme-provider";
 import type { FontSizeId, ThemeId } from "@/types/ui-types";
 import { toast } from "sonner";
+import { TERMINAL_THEMES } from "@/lib/terminal-themes";
+import {
+  DEFAULT_TERMINAL_THEME,
+  normalizeTerminalDefaultTheme,
+  readTerminalDefaultTheme,
+  TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+  TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+} from "@/features/terminal/terminal-theme";
 import { changeAppLanguage, normalizeLanguageCode } from "@/i18n/i18n";
 
 type UserProfileSection =
@@ -109,6 +117,13 @@ const THEMES: { id: ThemeId; preview: string }[] = [
   { id: "one-dark", preview: "#282c34" },
   { id: "gruvbox", preview: "#282828" },
 ];
+
+const TERMINAL_THEME_OPTIONS = Object.entries(TERMINAL_THEMES)
+  .filter(([id]) => id !== "termix")
+  .map(([id, terminalTheme]) => ({
+    id,
+    name: terminalTheme.name,
+  }));
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -458,6 +473,7 @@ export function UserProfilePanel({
     confirmTabClose?: boolean | null;
     hiddenRailTabs?: string | null;
     statusColorScheme?: string | null;
+    terminalDefaultTheme?: string | null;
   };
   onPrefsChange?: (prefs: {
     reopenTabsOnLogin?: boolean;
@@ -559,6 +575,9 @@ export function UserProfilePanel({
   );
   const [storageMode, setStorageMode] = useState<"local" | "cloud">(() =>
     userPrefs?.storageMode === "cloud" ? "cloud" : "local",
+  );
+  const [terminalDefaultTheme, setTerminalDefaultTheme] = useState(
+    readTerminalDefaultTheme,
   );
 
   useEffect(() => {
@@ -765,6 +784,7 @@ export function UserProfilePanel({
         "confirmTabClose",
         "hiddenRailTabs",
         "statusColorScheme",
+        TERMINAL_DEFAULT_THEME_STORAGE_KEY,
       ];
       const snap: Record<string, string | null> = { __theme: theme };
       for (const key of SNAPSHOT_KEYS) snap[key] = localStorage.getItem(key);
@@ -874,6 +894,17 @@ export function UserProfilePanel({
           localStorage.setItem("statusColorScheme", prefs.statusColorScheme);
           window.dispatchEvent(new CustomEvent("statusColorSchemeChanged"));
         }
+        if (prefs.terminalDefaultTheme != null) {
+          const restoredTerminalTheme = normalizeTerminalDefaultTheme(
+            prefs.terminalDefaultTheme,
+          );
+          setTerminalDefaultTheme(restoredTerminalTheme);
+          localStorage.setItem(
+            TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+            restoredTerminalTheme,
+          );
+          window.dispatchEvent(new Event(TERMINAL_DEFAULT_THEME_CHANGED_EVENT));
+        }
       } catch {
         // leave UI as-is on error
       }
@@ -927,6 +958,12 @@ export function UserProfilePanel({
     setStatusColorScheme("accent");
     localStorage.setItem("statusColorScheme", "accent");
     window.dispatchEvent(new CustomEvent("statusColorSchemeChanged"));
+    setTerminalDefaultTheme(DEFAULT_TERMINAL_THEME);
+    localStorage.setItem(
+      TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+      DEFAULT_TERMINAL_THEME,
+    );
+    window.dispatchEvent(new Event(TERMINAL_DEFAULT_THEME_CHANGED_EVENT));
     if (storageMode === "cloud") {
       saveToCloud({
         theme: "system",
@@ -946,6 +983,7 @@ export function UserProfilePanel({
         confirmTabClose: false,
         hiddenRailTabs: "[]",
         statusColorScheme: "accent",
+        terminalDefaultTheme: DEFAULT_TERMINAL_THEME,
       });
     }
     localSnapshot.current = {};
@@ -1079,6 +1117,15 @@ export function UserProfilePanel({
     setStatusColorScheme(restoredStatusScheme);
     localStorage.setItem("statusColorScheme", restoredStatusScheme);
     window.dispatchEvent(new CustomEvent("statusColorSchemeChanged"));
+    const restoredTerminalTheme = normalizeTerminalDefaultTheme(
+      restore(TERMINAL_DEFAULT_THEME_STORAGE_KEY, DEFAULT_TERMINAL_THEME),
+    );
+    setTerminalDefaultTheme(restoredTerminalTheme);
+    localStorage.setItem(
+      TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+      restoredTerminalTheme,
+    );
+    window.dispatchEvent(new Event(TERMINAL_DEFAULT_THEME_CHANGED_EVENT));
 
     localStorage.removeItem("termix-local-snapshot");
     localSnapshot.current = {};
@@ -1087,6 +1134,16 @@ export function UserProfilePanel({
   function handleThemeChange(id: ThemeId) {
     setTheme(id);
     if (storageMode === "cloud") saveToCloud({ theme: id });
+  }
+
+  function handleTerminalDefaultThemeChange(id: string) {
+    const nextTheme = normalizeTerminalDefaultTheme(id);
+    setTerminalDefaultTheme(nextTheme);
+    localStorage.setItem(TERMINAL_DEFAULT_THEME_STORAGE_KEY, nextTheme);
+    window.dispatchEvent(new Event(TERMINAL_DEFAULT_THEME_CHANGED_EVENT));
+    if (storageMode === "cloud") {
+      saveToCloud({ terminalDefaultTheme: nextTheme });
+    }
   }
 
   function handleAccentChange(value: string) {
@@ -1769,6 +1826,29 @@ export function UserProfilePanel({
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
               {t("newUi.sidebar.userProfile.settingsTerminal")}
             </span>
+            <div className="flex flex-col gap-1.5 py-3 border-b border-border">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium leading-snug">
+                  {t("newUi.sidebar.userProfile.terminalThemeLabel")}
+                </span>
+                <span className="text-xs text-muted-foreground leading-snug">
+                  {t("newUi.sidebar.userProfile.terminalThemeDesc")}
+                </span>
+              </div>
+              <select
+                value={terminalDefaultTheme}
+                onChange={(e) =>
+                  handleTerminalDefaultThemeChange(e.target.value)
+                }
+                className="h-7 border border-border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+              >
+                {TERMINAL_THEME_OPTIONS.map((terminalTheme) => (
+                  <option key={terminalTheme.id} value={terminalTheme.id}>
+                    {terminalTheme.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <SettingRow
               label={t("newUi.sidebar.userProfile.commandAutocomplete")}
               description={t(

@@ -25,7 +25,13 @@ import type { SSHHost } from "@/types";
 import { isElectron } from "@/main-axios.ts";
 import { SimpleLoader } from "@/lib/SimpleLoader.tsx";
 import { useTranslation } from "react-i18next";
-import { resolveTermixThemeColors } from "@/features/terminal/terminal-theme";
+import {
+  readTerminalDefaultTheme,
+  resolveEffectiveTerminalTheme,
+  resolveTermixThemeColors,
+  TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+  TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+} from "@/features/terminal/terminal-theme";
 import { DEFAULT_TERMINAL_CONFIG, TERMINAL_FONTS } from "@/lib/terminal-themes";
 import { ensureTerminalFontsLoaded } from "@/features/terminal/terminal-global-styles";
 import { useTheme } from "@/components/theme-provider";
@@ -46,10 +52,43 @@ export function ConsoleTerminal({
   const { t } = useTranslation();
   const { theme: appTheme } = useTheme();
   const { instance: terminal, ref: xtermRef } = useXTerm();
+  const [terminalDefaultTheme, setTerminalDefaultTheme] = React.useState(
+    readTerminalDefaultTheme,
+  );
+
+  React.useEffect(() => {
+    const updateTerminalDefaultTheme = () => {
+      setTerminalDefaultTheme(readTerminalDefaultTheme());
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === TERMINAL_DEFAULT_THEME_STORAGE_KEY) {
+        updateTerminalDefaultTheme();
+      }
+    };
+    window.addEventListener(
+      TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+      updateTerminalDefaultTheme,
+    );
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(
+        TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+        updateTerminalDefaultTheme,
+      );
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   const terminalConfig = React.useMemo(
-    () => ({ ...DEFAULT_TERMINAL_CONFIG, ...hostConfig.terminalConfig }),
-    [hostConfig.terminalConfig],
+    () => ({
+      ...DEFAULT_TERMINAL_CONFIG,
+      ...hostConfig.terminalConfig,
+      theme: resolveEffectiveTerminalTheme(
+        hostConfig.terminalConfig?.theme,
+        terminalDefaultTheme,
+      ),
+    }),
+    [hostConfig.terminalConfig, terminalDefaultTheme],
   );
 
   const themeColors = React.useMemo(() => {

@@ -79,6 +79,7 @@ function terminalTab(overrides: Partial<Tab> = {}): Tab {
 describe("PanelAgentPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     panelAgentApi.getPanelAgentSettings.mockResolvedValue({
       enabled: true,
       provider: "openai-compatible",
@@ -120,12 +121,156 @@ describe("PanelAgentPanel", () => {
     fireEvent.click(screen.getByText("panelAgent.send"));
 
     await screen.findByText("你好");
-    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith({
-      messages: [{ role: "user", content: "hi" }],
-      skillIds: ["safe-ops"],
-      model: "ops-model",
-      targets: [],
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
+      {
+        messages: [{ role: "user", content: "hi" }],
+        skillIds: ["safe-ops"],
+        model: "ops-model",
+        targets: [],
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("renders assistant markdown as structured content", async () => {
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: {
+        role: "assistant",
+        content: "## Plan\n\n- Check nginx\n- Restart service",
+        toolCalls: [],
+      },
     });
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await screen.findByText("panelAgent.noTerminals");
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "plan" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    expect(await screen.findByRole("heading", { name: "Plan" })).toBeTruthy();
+    expect(screen.getByText("Check nginx").closest("li")).not.toBeNull();
+  });
+
+  it("clears the visible conversation and starts the next chat from an empty history", async () => {
+    panelAgentApi.sendPanelAgentChat
+      .mockResolvedValueOnce({
+        message: { role: "assistant", content: "old answer", toolCalls: [] },
+      })
+      .mockResolvedValueOnce({
+        message: { role: "assistant", content: "fresh answer", toolCalls: [] },
+      });
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await screen.findByText("panelAgent.noTerminals");
+    expect(screen.getByText("panelAgent.clear")).toHaveProperty(
+      "disabled",
+      true,
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "old question" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("old answer");
+    fireEvent.click(screen.getByText("panelAgent.clear"));
+
+    expect(screen.queryByText("old question")).toBeNull();
+    expect(screen.queryByText("old answer")).toBeNull();
+    expect(screen.getByText("panelAgent.chatEmpty")).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "fresh question" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("fresh answer");
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "fresh question" }],
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("restores the selected model from localStorage", async () => {
+    localStorage.setItem("panelAgentSelectedModel", "remembered-model");
+    panelAgentApi.getPanelAgentSettings.mockResolvedValueOnce({
+      enabled: true,
+      provider: "openai-compatible",
+      baseUrl: "https://api.example.test/v1",
+      model: "",
+      temperature: 0.2,
+      maxTokens: 1800,
+      multiServerEnabled: true,
+      maxTargets: 4,
+      apiKeyConfigured: true,
+      skills: [],
+    });
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: { role: "assistant", content: "ok", toolCalls: [] },
+    });
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await screen.findByText("panelAgent.noTerminals");
+    expect(await screen.findByDisplayValue("remembered-model")).toBeTruthy();
+    expect(screen.queryByText("panelAgent.adminConfigRequired")).toBeNull();
+    expect(screen.queryByText("panelAgent.modelRequired")).toBeNull();
+
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "hi" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("ok");
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "remembered-model" }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("shows a model-specific warning when only the chat model is missing", async () => {
+    panelAgentApi.getPanelAgentSettings.mockResolvedValueOnce({
+      enabled: true,
+      provider: "openai-compatible",
+      baseUrl: "https://api.example.test/v1",
+      model: "",
+      temperature: 0.2,
+      maxTokens: 1800,
+      multiServerEnabled: true,
+      maxTargets: 4,
+      apiKeyConfigured: true,
+      skills: [],
+    });
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await screen.findByText("panelAgent.noTerminals");
+    expect(await screen.findByText("panelAgent.modelRequired")).toBeTruthy();
+    expect(screen.queryByText("panelAgent.adminConfigRequired")).toBeNull();
+    expect(screen.getByText("panelAgent.send")).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("keeps the composer fixed while only the message list scrolls", async () => {
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await screen.findByText("panelAgent.noTerminals");
+
+    const messageList = screen.getByTestId("panel-agent-message-list");
+    const composer = screen.getByTestId("panel-agent-composer");
+
+    expect(messageList.className).toContain("overflow-y-auto");
+    expect(messageList.contains(composer)).toBe(false);
+    expect(composer.className).toContain("shrink-0");
   });
 
   it("runs model tool calls against the selected terminal and continues the chat", async () => {
@@ -174,19 +319,22 @@ describe("PanelAgentPanel", () => {
     fireEvent.click(screen.getByText("panelAgent.send"));
 
     await screen.findByText("我先检查 nginx。");
-    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith({
-      messages: [{ role: "user", content: "检查 nginx" }],
-      skillIds: ["safe-ops"],
-      model: "ops-model",
-      targets: [
-        expect.objectContaining({
-          targetId: "tab-1",
-          hostName: "web-1",
-          sessionId: "session-1",
-          recentOutput: "nginx failed to start",
-        }),
-      ],
-    });
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
+      {
+        messages: [{ role: "user", content: "检查 nginx" }],
+        skillIds: ["safe-ops"],
+        model: "ops-model",
+        targets: [
+          expect.objectContaining({
+            targetId: "tab-1",
+            hostName: "web-1",
+            sessionId: "session-1",
+            recentOutput: "nginx failed to start",
+          }),
+        ],
+      },
+      expect.any(AbortSignal),
+    );
     await waitFor(() =>
       expect(tab.terminalRef?.current?.sendInput).toHaveBeenCalledWith(
         "systemctl status nginx\r",
@@ -195,5 +343,76 @@ describe("PanelAgentPanel", () => {
     await screen.findByText("panelAgent.toolCompleted", {}, { timeout: 3_000 });
     expect(await screen.findAllByText("nginx failed to start")).toHaveLength(2);
     expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a failed prompt retryable and replays it", async () => {
+    panelAgentApi.sendPanelAgentChat
+      .mockRejectedValueOnce(new Error("HTTP 404: Cloudflare block"))
+      .mockResolvedValueOnce({
+        message: { role: "assistant", content: "recovered", toolCalls: [] },
+      });
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("panelAgent.send")).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      {
+        target: { value: "hi" },
+      },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("HTTP 404: Cloudflare block");
+    fireEvent.click(screen.getByText("panelAgent.retry"));
+
+    await screen.findByText("recovered");
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledTimes(2);
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "hi" }],
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("aborts an in-flight chat from the stop button", async () => {
+    let requestSignal: AbortSignal | undefined;
+    panelAgentApi.sendPanelAgentChat.mockImplementation(
+      (_input: unknown, signal: AbortSignal) => {
+        requestSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(Object.assign(new Error("stopped"), { name: "AbortError" }));
+          });
+        });
+      },
+    );
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("panelAgent.send")).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      {
+        target: { value: "inspect" },
+      },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    fireEvent.click(await screen.findByText("panelAgent.stop"));
+
+    await screen.findByText("panelAgent.chatStopped");
+    expect(requestSignal?.aborted).toBe(true);
   });
 });

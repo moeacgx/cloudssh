@@ -34,6 +34,7 @@ describe("UserPreferenceRepository", () => {
         accent_color TEXT,
         language TEXT,
         storage_mode TEXT,
+        terminal_default_theme TEXT,
         command_autocomplete INTEGER,
         command_palette_enabled INTEGER,
         show_host_tags INTEGER,
@@ -68,6 +69,7 @@ describe("UserPreferenceRepository", () => {
       reopenTabsOnLogin: true,
       theme: "dark",
       storageMode: "local",
+      terminalDefaultTheme: "termixDark",
       commandAutocomplete: true,
     });
     expect(created).toMatchObject({
@@ -75,6 +77,7 @@ describe("UserPreferenceRepository", () => {
       reopenTabsOnLogin: true,
       theme: "dark",
       storageMode: "local",
+      terminalDefaultTheme: "termixDark",
       commandAutocomplete: true,
     });
 

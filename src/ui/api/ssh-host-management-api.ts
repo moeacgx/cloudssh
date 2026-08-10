@@ -27,6 +27,7 @@ export type ProjectHostUpdateContext = {
   projectHostId: number;
   alias: string | null;
   folder: string | null;
+  tags?: string[];
 };
 
 async function loadSSHHostsFromApi(): Promise<SSHHost[]> {

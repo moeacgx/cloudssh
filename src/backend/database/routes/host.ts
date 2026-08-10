@@ -81,6 +81,7 @@ interface ProjectHostUpdateContext {
   projectHostId: number;
   alias: string | null;
   folder: string | null;
+  tags?: string | null;
 }
 
 class InvalidProjectHostUpdateContextError extends Error {}
@@ -116,6 +117,33 @@ function parseProjectFolder(value: unknown): string | null {
   return folder;
 }
 
+function parseProjectTags(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return "";
+  if (!Array.isArray(value) || value.length > 32) {
+    throw new InvalidProjectHostUpdateContextError("Invalid project tags");
+  }
+  const tags = [
+    ...new Set(
+      value.map((tag) => {
+        if (typeof tag !== "string") {
+          throw new InvalidProjectHostUpdateContextError(
+            "Invalid project tags",
+          );
+        }
+        const trimmed = tag.trim();
+        if (!trimmed || trimmed.length > 64 || /[\0\r\n,]/.test(trimmed)) {
+          throw new InvalidProjectHostUpdateContextError(
+            "Invalid project tags",
+          );
+        }
+        return trimmed;
+      }),
+    ),
+  ];
+  return tags.join(",");
+}
+
 function parseProjectHostUpdateContext(
   value: unknown,
 ): ProjectHostUpdateContext {
@@ -141,8 +169,9 @@ function parseProjectHostUpdateContext(
 
   const alias = parseProjectAlias(input.alias);
   const folder = parseProjectFolder(input.folder);
+  const tags = parseProjectTags(input.tags);
 
-  return { projectId, projectHostId, alias, folder };
+  return { projectId, projectHostId, alias, folder, tags };
 }
 
 const STATS_SERVER_URL = "http://localhost:30005";
@@ -1599,6 +1628,7 @@ router.put(
           {
             alias: projectHostUpdateContext.alias,
             folder: projectHostUpdateContext.folder,
+            tags: projectHostUpdateContext.tags,
           },
         );
       } else if (projectHostUpdateContext) {

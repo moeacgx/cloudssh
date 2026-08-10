@@ -72,17 +72,20 @@ export function AdminPanelAgentSection({
     if (!settings) return;
     setModelsLoading(true);
     try {
-      const loaded = await getPanelAgentModels({
-        baseUrl: settings.baseUrl,
-        apiKey: apiKeyDraft.trim() || undefined,
-      });
+      const draftApiKey = apiKeyDraft.trim();
+      const loaded = await getPanelAgentModels(
+        draftApiKey
+          ? { baseUrl: settings.baseUrl, apiKey: draftApiKey }
+          : undefined,
+      );
       setModels(loaded);
       if (!settings.model && loaded[0]) update({ model: loaded[0].id });
       toast.success(
         t("admin.panelAgentModelsLoaded", { count: loaded.length }),
       );
-    } catch {
-      toast.error(t("admin.panelAgentModelsLoadFailed"));
+    } catch (error) {
+      const message = error instanceof Error ? `: ${error.message}` : "";
+      toast.error(`${t("admin.panelAgentModelsLoadFailed")}${message}`);
     } finally {
       setModelsLoading(false);
     }

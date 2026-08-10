@@ -115,10 +115,14 @@ describe("panel agent API", () => {
       apiKey: "draft-key",
     });
 
-    expect(api.post).toHaveBeenCalledWith("/panel-agent/models", {
-      baseUrl: "https://api.example.test/v1",
-      apiKey: "draft-key",
-    });
+    expect(api.post).toHaveBeenCalledWith(
+      "/panel-agent/models",
+      {
+        baseUrl: "https://api.example.test/v1",
+        apiKey: "draft-key",
+      },
+      expect.objectContaining({ timeout: 180_000 }),
+    );
     expect(models.map((model) => model.id)).toEqual([
       "ops-model",
       "fast-model",
@@ -151,11 +155,15 @@ describe("panel agent API", () => {
       targets: [{ targetId: "tab-1", hostName: "web-1", connected: true }],
     });
 
-    expect(api.post).toHaveBeenCalledWith("/panel-agent/chat", {
-      messages: [{ role: "user", content: "检查 nginx" }],
-      model: "ops-model",
-      targets: [{ targetId: "tab-1", hostName: "web-1", connected: true }],
-    });
+    expect(api.post).toHaveBeenCalledWith(
+      "/panel-agent/chat",
+      {
+        messages: [{ role: "user", content: "检查 nginx" }],
+        model: "ops-model",
+        targets: [{ targetId: "tab-1", hostName: "web-1", connected: true }],
+      },
+      expect.objectContaining({ timeout: 180_000 }),
+    );
     expect(response.message.toolCalls[0].name).toBe("run_terminal_command");
   });
 
@@ -194,17 +202,21 @@ describe("panel agent API", () => {
       ],
     });
 
-    expect(api.post).toHaveBeenCalledWith("/panel-agent/generate", {
-      instruction: "check nginx",
-      targets: [
-        {
-          targetId: "tab-1",
-          hostName: "web-1",
-          connected: true,
-          recentOutput: "nginx failed",
-        },
-      ],
-    });
+    expect(api.post).toHaveBeenCalledWith(
+      "/panel-agent/generate",
+      {
+        instruction: "check nginx",
+        targets: [
+          {
+            targetId: "tab-1",
+            hostName: "web-1",
+            connected: true,
+            recentOutput: "nginx failed",
+          },
+        ],
+      },
+      expect.objectContaining({ timeout: 180_000 }),
+    );
     expect(plan.targets[0].commands[0].command).toBe("systemctl status nginx");
   });
 });

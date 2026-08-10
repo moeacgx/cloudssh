@@ -61,7 +61,13 @@ import { ConnectionLog } from "@/ssh/connection-log/ConnectionLog.tsx";
 import { toast } from "sonner";
 import { Button } from "@/components/button";
 import { Bot, LockKeyhole, Save } from "lucide-react";
-import { resolveTermixThemeColors } from "./terminal-theme.ts";
+import {
+  readTerminalDefaultTheme,
+  resolveEffectiveTerminalTheme,
+  resolveTermixThemeColors,
+  TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+  TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+} from "./terminal-theme.ts";
 import { ShareSessionModal } from "@/features/session-sharing/ShareSessionModal.tsx";
 import type {
   TerminalHandle,
@@ -220,7 +226,33 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const commandHistoryContext = useCommandHistory();
     const { confirmWithToast } = useConfirmation();
     const { theme: appTheme } = useTheme();
+    const [terminalDefaultTheme, setTerminalDefaultTheme] = useState(
+      readTerminalDefaultTheme,
+    );
     const { addLog, isExpanded: isConnectionLogExpanded } = useConnectionLog();
+
+    useEffect(() => {
+      const updateTerminalDefaultTheme = () => {
+        setTerminalDefaultTheme(readTerminalDefaultTheme());
+      };
+      const handleStorage = (event: StorageEvent) => {
+        if (event.key === TERMINAL_DEFAULT_THEME_STORAGE_KEY) {
+          updateTerminalDefaultTheme();
+        }
+      };
+      window.addEventListener(
+        TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+        updateTerminalDefaultTheme,
+      );
+      window.addEventListener("storage", handleStorage);
+      return () => {
+        window.removeEventListener(
+          TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+          updateTerminalDefaultTheme,
+        );
+        window.removeEventListener("storage", handleStorage);
+      };
+    }, []);
 
     const savedTheme = localStorage.getItem(
       `terminal_theme_host_${hostConfig.id}`,
@@ -229,10 +261,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     const config = {
       ...DEFAULT_TERMINAL_CONFIG,
       ...hostConfig.terminalConfig,
-      theme:
-        savedTheme ||
-        hostConfig.terminalConfig?.theme ||
-        DEFAULT_TERMINAL_CONFIG.theme,
+      theme: resolveEffectiveTerminalTheme(
+        savedTheme ?? hostConfig.terminalConfig?.theme,
+        terminalDefaultTheme,
+      ),
     };
 
     const activeTheme = previewTheme || config.theme;
@@ -2906,6 +2938,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       const config = {
         ...DEFAULT_TERMINAL_CONFIG,
         ...hostConfig.terminalConfig,
+        theme: resolveEffectiveTerminalTheme(
+          savedTheme ?? hostConfig.terminalConfig?.theme,
+          terminalDefaultTheme,
+        ),
       };
 
       const activeTheme = previewTheme || config.theme;
@@ -2973,7 +3009,15 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       // Refresh terminal to apply new theme colors to existing buffer content
       hardRefresh();
-    }, [terminal, hostConfig.terminalConfig, previewTheme, appTheme, isFitted]);
+    }, [
+      terminal,
+      hostConfig.terminalConfig,
+      previewTheme,
+      appTheme,
+      isFitted,
+      savedTheme,
+      terminalDefaultTheme,
+    ]);
 
     useEffect(() => {
       if (!terminal || !xtermRef.current) return;
@@ -2981,6 +3025,10 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       const config = {
         ...DEFAULT_TERMINAL_CONFIG,
         ...hostConfig.terminalConfig,
+        theme: resolveEffectiveTerminalTheme(
+          savedTheme ?? hostConfig.terminalConfig?.theme,
+          terminalDefaultTheme,
+        ),
       };
 
       const fontConfig = TERMINAL_FONTS.find(

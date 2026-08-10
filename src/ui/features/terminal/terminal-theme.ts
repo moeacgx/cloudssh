@@ -1,6 +1,47 @@
 import { TERMINAL_THEMES } from "@/lib/terminal-themes.ts";
 import type { TerminalConfig } from "@/types/index.ts";
 
+export const DEFAULT_TERMINAL_THEME = "termixDark";
+export const TERMINAL_DEFAULT_THEME_STORAGE_KEY = "terminalDefaultTheme";
+export const TERMINAL_DEFAULT_THEME_CHANGED_EVENT =
+  "terminalDefaultThemeChanged";
+
+export function normalizeTerminalDefaultTheme(value?: string | null): string {
+  if (value && value !== "termix" && TERMINAL_THEMES[value]) return value;
+  return DEFAULT_TERMINAL_THEME;
+}
+
+const HOST_DEFAULT_TERMINAL_THEME_VALUES = new Set([
+  "termix",
+  "termixDark",
+  "termixLight",
+  "Termix Dark",
+  "Termix Light",
+]);
+
+function isHostDefaultTerminalTheme(value?: string | null): boolean {
+  return !value || HOST_DEFAULT_TERMINAL_THEME_VALUES.has(value);
+}
+
+export function readTerminalDefaultTheme(): string {
+  if (typeof window === "undefined") return DEFAULT_TERMINAL_THEME;
+  return normalizeTerminalDefaultTheme(
+    window.localStorage.getItem(TERMINAL_DEFAULT_THEME_STORAGE_KEY),
+  );
+}
+
+export function resolveEffectiveTerminalTheme(
+  hostTheme: string | null | undefined,
+  terminalDefaultTheme: string | null | undefined,
+): string {
+  if (isHostDefaultTerminalTheme(hostTheme)) {
+    return normalizeTerminalDefaultTheme(terminalDefaultTheme);
+  }
+  return hostTheme === "custom" || TERMINAL_THEMES[hostTheme]
+    ? hostTheme
+    : normalizeTerminalDefaultTheme(terminalDefaultTheme);
+}
+
 // Background/foreground per UI theme for "Termix Default" - must match index.css
 const TERMIX_DEFAULT_COLORS: Record<
   string,

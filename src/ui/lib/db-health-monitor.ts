@@ -89,7 +89,6 @@ class DatabaseHealthMonitor {
       errorCode === "ECONNABORTED" ||
       errorCode === "ECONNRESET" ||
       errorCode === "ETIMEDOUT" ||
-      errorCode === "ERR_CANCELED" ||
       (lowerMessage.includes("network error") &&
         errorLike.response === undefined) ||
       lowerMessage.includes("request aborted") ||

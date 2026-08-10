@@ -1,3 +1,4 @@
+import axios, { type AxiosRequestConfig } from "axios";
 import { authApi, handleApiError } from "@/main-axios";
 
 const PANEL_AGENT_PREFIX = "/panel-agent";
@@ -112,6 +113,30 @@ export type PanelAgentPlan = {
   targets: PanelAgentTargetPlan[];
 };
 
+const PANEL_AGENT_REQUEST_CONFIG = {
+  timeout: 180_000,
+} satisfies AxiosRequestConfig;
+
+function panelAgentApiError(error: unknown, operation: string): never {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as
+      | { error?: unknown; message?: unknown; detail?: unknown; code?: unknown }
+      | undefined;
+    const message =
+      (typeof data?.error === "string" && data.error) ||
+      (typeof data?.message === "string" && data.message) ||
+      "";
+    const detail = typeof data?.detail === "string" ? data.detail : "";
+    if (message) {
+      throw new Error(detail ? `${message}: ${detail}` : message);
+    }
+  }
+  throw handleApiError(error, operation, {
+    preserveAuthErrorMessage: true,
+    preserveResponseMessage: true,
+  });
+}
+
 function readSettingsPayload(payload: unknown): PanelAgentSettings {
   const wrappedPayload =
     payload !== null && typeof payload === "object"
@@ -149,9 +174,7 @@ export async function getPanelAgentSettings(): Promise<PanelAgentSettings> {
     const response = await authApi.get(`${PANEL_AGENT_PREFIX}/settings`);
     return readSettingsPayload(response.data);
   } catch (error) {
-    throw handleApiError(error, "load panel agent settings", {
-      preserveAuthErrorMessage: true,
-    });
+    panelAgentApiError(error, "load panel agent settings");
   }
 }
 
@@ -165,9 +188,7 @@ export async function updatePanelAgentSettings(
     );
     return readSettingsPayload(response.data);
   } catch (error) {
-    throw handleApiError(error, "update panel agent settings", {
-      preserveAuthErrorMessage: true,
-    });
+    panelAgentApiError(error, "update panel agent settings");
   }
 }
 
@@ -175,25 +196,30 @@ export async function getPanelAgentModels(
   input: PanelAgentModelListInput = {},
 ): Promise<PanelAgentModel[]> {
   try {
-    const response = await authApi.post(`${PANEL_AGENT_PREFIX}/models`, input);
+    const response = await authApi.post(
+      `${PANEL_AGENT_PREFIX}/models`,
+      input,
+      PANEL_AGENT_REQUEST_CONFIG,
+    );
     return response.data.models;
   } catch (error) {
-    throw handleApiError(error, "load panel agent models", {
-      preserveAuthErrorMessage: true,
-    });
+    panelAgentApiError(error, "load panel agent models");
   }
 }
 
 export async function sendPanelAgentChat(
   input: PanelAgentChatInput,
+  signal?: AbortSignal,
 ): Promise<PanelAgentChatResponse> {
   try {
-    const response = await authApi.post(`${PANEL_AGENT_PREFIX}/chat`, input);
+    const response = await authApi.post(`${PANEL_AGENT_PREFIX}/chat`, input, {
+      ...PANEL_AGENT_REQUEST_CONFIG,
+      signal,
+    });
     return response.data;
   } catch (error) {
-    throw handleApiError(error, "send panel agent chat", {
-      preserveAuthErrorMessage: true,
-    });
+    if (axios.isCancel(error)) throw error;
+    panelAgentApiError(error, "send panel agent chat");
   }
 }
 
@@ -204,11 +230,10 @@ export async function generatePanelAgentPlan(
     const response = await authApi.post(
       `${PANEL_AGENT_PREFIX}/generate`,
       input,
+      PANEL_AGENT_REQUEST_CONFIG,
     );
     return response.data.plan;
   } catch (error) {
-    throw handleApiError(error, "generate panel agent plan", {
-      preserveAuthErrorMessage: true,
-    });
+    panelAgentApiError(error, "generate panel agent plan");
   }
 }

@@ -155,6 +155,7 @@ export interface UserPreferences {
   accentColor?: string | null;
   language?: string | null;
   storageMode?: string | null;
+  terminalDefaultTheme?: string | null;
   commandAutocomplete?: boolean | null;
   commandPaletteEnabled?: boolean | null;
   showHostTags?: boolean | null;

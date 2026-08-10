@@ -394,6 +394,7 @@ export function HostEditor({
               sourceFolder: saved.folder ?? "",
               name: projectMetadata.alias || saved.name,
               folder: projectMetadata.folder ?? "",
+              tags: projectMetadata.tags,
             };
           } else {
             saved = await updateSSHHost(Number(host.id), globalData);

@@ -59,6 +59,22 @@ describe.each(configurations)("%s Agent 入口安全约束", (filePath) => {
     );
   });
 
+  it("把面板 Agent 设置和聊天接口转发到控制面", () => {
+    const location = extractLocation(
+      configuration,
+      "location ~ ^/panel-agent(/.*)?$ {",
+    );
+    expect(location).not.toBe("");
+    expect(location).toContain("proxy_pass http://127.0.0.1:30001;");
+    expect(location).toContain(
+      "proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;",
+    );
+    expect(location).toContain(
+      "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+    );
+    expect(location).toContain("proxy_read_timeout 300s;");
+  });
+
   it("把管理员更新接口转发到控制面并禁止缓存", () => {
     const location = extractLocation(
       configuration,

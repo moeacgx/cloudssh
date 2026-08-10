@@ -79,7 +79,13 @@ export class SqliteAgentServerDirectory implements AgentServerDirectory {
     const folderExpression = projectHostColumns.has("folder")
       ? "project_host.folder"
       : "NULL";
-    const tagsExpression = hostColumns.has("tags") ? "host.tags" : "NULL";
+    const tagsExpression = projectHostColumns.has("tags")
+      ? hostColumns.has("tags")
+        ? "COALESCE(project_host.tags, host.tags)"
+        : "project_host.tags"
+      : hostColumns.has("tags")
+        ? "host.tags"
+        : "NULL";
     const rows = this.sqlite
       .prepare(
         `SELECT CAST(project_host.id AS TEXT) AS serverId,

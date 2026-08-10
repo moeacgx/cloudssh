@@ -116,6 +116,32 @@ function folderPath(value: unknown, name = "path"): string {
   return path;
 }
 
+function projectTags(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return "";
+  if (!Array.isArray(value) || value.length > 32) {
+    throw new ControlPlaneManagementError(400, "Invalid tags");
+  }
+  return [
+    ...new Set(
+      value.map((tag) => {
+        if (typeof tag !== "string") {
+          throw new ControlPlaneManagementError(400, "Invalid tags");
+        }
+        const normalized = tag.trim();
+        if (
+          !normalized ||
+          normalized.length > 64 ||
+          /[\0\r\n,]/.test(normalized)
+        ) {
+          throw new ControlPlaneManagementError(400, "Invalid tags");
+        }
+        return normalized;
+      }),
+    ),
+  ].join(",");
+}
+
 function nullableStyleValue(
   value: unknown,
   name: "color" | "icon",
@@ -1318,6 +1344,7 @@ export function createManagementRouter(
           rawFolder === undefined || rawFolder === null || rawFolder === ""
             ? null
             : folderPath(rawFolder, "folder");
+        const tags = projectTags(req.body?.tags);
         const server = dependencies
           .createRepository()
           .updateProjectHostMetadata(
@@ -1325,7 +1352,7 @@ export function createManagementRouter(
             userId,
             await adminStatus(dependencies, userId),
             projectHostId,
-            { alias, folder },
+            { alias, folder, tags },
           );
         await dependencies.afterMutation("project_host_metadata_update");
         return res.json({ server });

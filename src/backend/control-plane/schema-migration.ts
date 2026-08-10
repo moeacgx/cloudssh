@@ -126,6 +126,7 @@ export function ensureControlPlaneSchema(sqlite: Database.Database): void {
         credential_id TEXT REFERENCES project_credentials(id) ON DELETE SET NULL,
         alias TEXT,
         folder TEXT,
+        tags TEXT,
         added_by TEXT REFERENCES users(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -478,6 +479,9 @@ export function ensureControlPlaneSchema(sqlite: Database.Database): void {
            WHERE folder IS NOT NULL AND trim(folder) <> '';
         `);
       }
+    }
+    if (!projectHostColumns.some((column) => column.name === "tags")) {
+      sqlite.exec("ALTER TABLE project_hosts ADD COLUMN tags TEXT");
     }
 
     const tokenColumns = sqlite

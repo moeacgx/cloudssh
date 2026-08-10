@@ -191,7 +191,8 @@ describe("云 SSH 项目控制面", () => {
     context
       .sqlite!.prepare(
         `UPDATE ssh_data
-          SET network_info_status = 'ready',
+          SET tags = 'global-tag',
+              network_info_status = 'ready',
               network_lookup_source = ip,
               network_resolved_ip = ip,
               network_country_code = 'US',
@@ -204,6 +205,9 @@ describe("云 SSH 项目控制面", () => {
         WHERE id = 7`,
       )
       .run();
+    context
+      .sqlite!.prepare("UPDATE project_hosts SET tags = ? WHERE id = 11")
+      .run("project-tag,test");
     const servers = await repository.listProjectServers("project-1", "member");
     expect(servers).toHaveLength(1);
     expect(servers?.[0]).toMatchObject({
@@ -214,6 +218,7 @@ describe("云 SSH 项目控制面", () => {
       port: 22,
       linkedProjectCount: 2,
       canDeleteFromAllProjects: false,
+      tags: ["project-tag", "test"],
       health: { status: "healthy" },
       networkInfo: {
         status: "ready",

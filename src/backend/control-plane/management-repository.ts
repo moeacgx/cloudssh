@@ -20,6 +20,15 @@ export interface ProjectFolderValues {
   icon?: string | null;
 }
 
+function parseTags(value: string | null | undefined): string[] {
+  return value
+    ? value
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    : [];
+}
+
 export class ControlPlaneManagementError extends Error {
   constructor(
     readonly status: 400 | 403 | 404 | 409 | 503,
@@ -1557,13 +1566,17 @@ export class ManagementRepository {
     userId: string,
     isInstanceAdmin: boolean,
     projectHostId: number,
-    values: { alias: string | null; folder: string | null },
+    values: {
+      alias: string | null;
+      folder: string | null;
+      tags?: string | null;
+    },
   ) {
     this.requireProjectAdmin(projectId, userId, isInstanceAdmin);
     return this.sqlite.transaction(() => {
       const linked = this.sqlite
         .prepare(
-          `SELECT ph.id, h.id AS hostId, h.name AS sourceName,
+          `SELECT ph.id, ph.tags, h.id AS hostId, h.name AS sourceName,
                   h.ip AS address, h.port, h.connection_type AS connectionType
              FROM project_hosts ph
              JOIN ssh_data h ON h.id = ph.host_id
@@ -1576,6 +1589,7 @@ export class ManagementRepository {
             sourceName: string | null;
             address: string;
             port: number;
+            tags: string | null;
             connectionType: string;
           }
         | undefined;
@@ -1593,12 +1607,25 @@ export class ManagementRepository {
           )
           .run(projectId, folder);
       }
+      const metadataUpdate: Record<string, string | null> = {
+        alias,
+        folder,
+      };
+      if (values.tags !== undefined) metadataUpdate.tags = values.tags;
       this.sqlite
         .prepare(
-          `UPDATE project_hosts SET alias = ?, folder = ?
-            WHERE id = ? AND project_id = ?`,
+          `UPDATE project_hosts SET
+             alias = @alias,
+             folder = @folder,
+             tags = COALESCE(@tags, tags)
+            WHERE id = @projectHostId AND project_id = @projectId`,
         )
-        .run(alias, folder, projectHostId, projectId);
+        .run({
+          ...metadataUpdate,
+          tags: values.tags ?? null,
+          projectHostId,
+          projectId,
+        });
       return {
         projectHostId,
         hostId: linked.hostId,
@@ -1607,6 +1634,7 @@ export class ManagementRepository {
         address: linked.address,
         port: linked.port,
         connectionType: linked.connectionType,
+        tags: parseTags(values.tags !== undefined ? values.tags : linked.tags),
         folder,
       };
     })();

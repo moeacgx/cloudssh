@@ -148,6 +148,11 @@ import { MigrationNoticeDialog } from "@/components/MigrationNoticeDialog.tsx";
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
 import { ServerStatusProvider } from "@/lib/ServerStatusContext";
+import {
+  normalizeTerminalDefaultTheme,
+  TERMINAL_DEFAULT_THEME_CHANGED_EVENT,
+  TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+} from "@/features/terminal/terminal-theme";
 import { TransferMonitor } from "@/features/file-manager/TransferMonitor.tsx";
 import {
   createHostManagerEditEvent,
@@ -771,6 +776,7 @@ function AppShellContent({
               "disableUpdateCheck",
               "confirmTabClose",
               "hiddenRailTabs",
+              TERMINAL_DEFAULT_THEME_STORAGE_KEY,
             ];
             const snap: Record<string, string | null> = {
               __theme: localStorage.getItem("termix-theme"),
@@ -869,6 +875,18 @@ function AppShellContent({
             localStorage.setItem("hiddenRailTabs", prefs.hiddenRailTabs);
             window.dispatchEvent(new CustomEvent("hiddenRailTabsChanged"));
           }
+          if (
+            prefs.terminalDefaultTheme !== null &&
+            prefs.terminalDefaultTheme !== undefined
+          ) {
+            localStorage.setItem(
+              TERMINAL_DEFAULT_THEME_STORAGE_KEY,
+              normalizeTerminalDefaultTheme(prefs.terminalDefaultTheme),
+            );
+            window.dispatchEvent(
+              new Event(TERMINAL_DEFAULT_THEME_CHANGED_EVENT),
+            );
+          }
         }
       })
       .catch(() => {})
@@ -907,6 +925,7 @@ function AppShellContent({
               sourceFolder: host.folder ?? "",
               name: projectServer?.name || host.name,
               folder: projectServer?.folder ?? "",
+              tags: projectServer?.tags ?? host.tags,
               networkInfo: projectServer?.networkInfo ?? host.networkInfo,
               linkedProjectCount: projectServer?.linkedProjectCount ?? 1,
               canDeleteFromAllProjects:

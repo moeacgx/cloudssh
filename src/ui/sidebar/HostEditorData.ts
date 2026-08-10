@@ -291,16 +291,18 @@ export function preserveGlobalHostMetadata(
     ...payload,
     name: host.sourceName ?? host.name,
     folder: host.sourceFolder ?? "",
+    tags: host.tags ?? [],
   };
 }
 
 export function buildProjectHostMetadataInput(
   payload: SSHHostData,
   projectKind: "personal" | "team",
-): { alias: string | null; folder: string | null } {
+): { alias: string | null; folder: string | null; tags: string[] } {
   return {
     alias: projectKind === "team" ? payload.name?.trim() || null : null,
     folder: payload.folder?.trim() || null,
+    tags: payload.tags ?? [],
   };
 }
 

@@ -15,6 +15,15 @@ import {
 import type { DatabaseContext } from "../database/repositories/database-context.js";
 import { hostNetworkInfoFromRecord } from "../hosts/network-info.js";
 
+function parseTags(value: string | null | undefined): string[] {
+  return value
+    ? value
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    : [];
+}
+
 export type ProjectRole =
   | "instance_admin"
   | "project_admin"
@@ -294,7 +303,8 @@ export class ProjectRepository {
         port: hosts.port,
         connectionType: hosts.connectionType,
         folder: projectHosts.folder,
-        tags: hosts.tags,
+        projectTags: projectHosts.tags,
+        hostTags: hosts.tags,
         enableTerminal: hosts.enableTerminal,
         enableFileManager: hosts.enableFileManager,
         enableSessionLogging: hosts.enableSessionLogging,
@@ -345,7 +355,7 @@ export class ProjectRepository {
       port: row.port,
       connectionType: row.connectionType,
       folder: row.folder,
-      tags: row.tags,
+      tags: parseTags(row.projectTags ?? row.hostTags),
       networkInfo: hostNetworkInfoFromRecord(row),
       linkedProjectCount: Number(row.linkedProjectCount ?? 1),
       canDeleteFromAllProjects: row.canDeleteFromAllProjects === 1,
