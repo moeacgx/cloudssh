@@ -77,6 +77,59 @@ describe("Panel Agent routes", () => {
     expect(JSON.stringify(body)).not.toContain("secret-key");
   });
 
+  it("returns the tmux pane execution constraint as a default CloudSSH skill", async () => {
+    const store = new MemorySettingsStore();
+    runtime = await startRouter(store);
+
+    const response = await fetch(`${runtime.baseUrl}/settings`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.settings.skills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "tmux-pane-execution",
+          enabled: true,
+          content: expect.stringContaining("tmux send-keys"),
+        }),
+      ]),
+    );
+  });
+
+  it("adds newly introduced built-in skills to legacy built-in skill sets", async () => {
+    const store = new MemorySettingsStore();
+    store.values.set(
+      "panel_agent_settings_v1",
+      JSON.stringify({
+        enabled: true,
+        provider: "openai-compatible",
+        baseUrl: "https://api.example.test/v1",
+        model: "ops-model",
+        temperature: 0.2,
+        maxTokens: 1024,
+        multiServerEnabled: true,
+        maxTargets: 4,
+        skills: [
+          {
+            id: "safe-ops",
+            name: "安全运维边界",
+            content: "旧默认技能",
+            enabled: true,
+          },
+        ],
+      }),
+    );
+    runtime = await startRouter(store);
+
+    const response = await fetch(`${runtime.baseUrl}/settings`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(
+      body.settings.skills.map((skill: { id: string }) => skill.id),
+    ).toContain("tmux-pane-execution");
+  });
+
   it("persists skills with empty content", async () => {
     const store = new MemorySettingsStore();
     runtime = await startRouter(store);
@@ -245,6 +298,7 @@ describe("Panel Agent routes", () => {
     ).toEqual(["read_terminal_context", "run_terminal_command"]);
     expect(request.messages[1].content).toContain("nginx failed");
     expect(request.messages[1].content).not.toContain("secret-token");
+    expect(request.messages[0].content).toContain("tmux send-keys");
   });
 
   it("allows contextual chat without selected SSH targets", async () => {
