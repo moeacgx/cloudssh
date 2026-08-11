@@ -54,8 +54,8 @@ describe("WorkspaceUtilityRail", () => {
     const floatButton = screen.getByRole("button", {
       name: "workspace.utility.agentFloat",
     });
-    expect(floatButton.className).toContain("fixed");
-    expect(floatButton.className).toContain("bg-background/75");
+    expect(floatButton.className).toContain("bg-background/45");
+    expect(floatButton.className).toContain("backdrop-blur-2xl");
 
     fireEvent.pointerDown(floatButton, {
       clientX: 360,
@@ -73,9 +73,12 @@ describe("WorkspaceUtilityRail", () => {
       name: "workspace.utility.agentChat",
     });
     expect(dialog.className).toContain("fixed");
-    expect(dialog.className).toContain("bg-background/80");
-    expect(dialog.className).toContain("backdrop-blur-xl");
-    expect(Number.parseInt(dialog.style.height, 10)).toBeLessThanOrEqual(360);
+    expect(dialog.className).toContain("bg-background/55");
+    expect(dialog.className).toContain("backdrop-blur-2xl");
+    expect(Number.parseInt(dialog.style.height, 10)).toBeLessThanOrEqual(560);
+    expect(Number.parseInt(dialog.style.height, 10)).toBeGreaterThanOrEqual(
+      360,
+    );
     expect(screen.getByTestId("panel-agent-panel").textContent).toContain(
       "embedded agent panel compact",
     );
@@ -125,6 +128,7 @@ describe("WorkspaceUtilityRail", () => {
       name: "workspace.utility.agentFloatRestore",
     });
     expect(restoreHandle.className).toContain("w-2");
+    expect(restoreHandle.className).toContain("bg-accent-brand/45");
 
     fireEvent.click(restoreHandle);
     expect(

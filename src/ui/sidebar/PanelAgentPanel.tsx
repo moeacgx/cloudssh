@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   AlertTriangle,
   Bot,
   BrainCircuit,
+  Plus,
   RefreshCw,
   Send,
   Server,
@@ -11,6 +19,7 @@ import {
   Terminal,
   Trash2,
   Wrench,
+  Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -130,9 +139,13 @@ function toolCallSummary(toolCall: PanelAgentToolCall) {
 }
 
 function roleClass(role: PanelAgentChatMessage["role"]) {
-  if (role === "user") return "ml-8 border-accent-brand/30 bg-accent-brand/10";
-  if (role === "tool") return "border-border bg-muted/40";
-  return "mr-8 border-border bg-card";
+  if (role === "user") {
+    return "ml-7 rounded-2xl border-accent-brand/30 bg-accent-brand/10 shadow-sm backdrop-blur";
+  }
+  if (role === "tool") {
+    return "rounded-xl border-border/70 bg-muted/35 shadow-sm backdrop-blur";
+  }
+  return "mr-7 rounded-2xl border-border/70 bg-background/70 shadow-sm backdrop-blur";
 }
 
 export function PanelAgentPanel({
@@ -497,7 +510,7 @@ export function PanelAgentPanel({
     return (
       <div
         key={`${message.toolCallId ?? "tool"}-${index}`}
-        className="border border-border bg-muted/40 p-2 text-[11px]"
+        className="rounded-xl border border-border/70 bg-muted/35 p-2 text-[11px] shadow-sm backdrop-blur"
       >
         <div className="mb-1 flex items-center gap-2 font-semibold text-muted-foreground">
           {payload?.blocked ? (
@@ -517,7 +530,7 @@ export function PanelAgentPanel({
           )}
         </div>
         {payload?.command && (
-          <pre className="mb-1 overflow-auto bg-black p-2 text-green-200">
+          <pre className="mb-1 overflow-auto rounded-lg bg-black/90 p-2 text-green-200">
             {payload.command}
           </pre>
         )}
@@ -525,7 +538,7 @@ export function PanelAgentPanel({
           <p className="mb-1 text-amber-600">{payload.error}</p>
         )}
         {payload?.recentOutput && (
-          <pre className="max-h-36 overflow-auto whitespace-pre-wrap bg-background p-2 text-muted-foreground">
+          <pre className="max-h-36 overflow-auto rounded-lg bg-background/65 p-2 text-muted-foreground">
             {payload.recentOutput}
           </pre>
         )}
@@ -570,7 +583,7 @@ export function PanelAgentPanel({
             {message.toolCalls.map((toolCall) => (
               <div
                 key={toolCall.id}
-                className="flex items-center gap-2 border border-border bg-background p-2 text-[11px] text-muted-foreground"
+                className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/55 p-2 text-[11px] text-muted-foreground backdrop-blur"
               >
                 <Wrench className="size-3.5" />
                 <span className="truncate">{toolCallSummary(toolCall)}</span>
@@ -592,12 +605,19 @@ export function PanelAgentPanel({
   const modelMissing = Boolean(
     settings && !adminConfigMissing && !hasSelectedModel,
   );
+
   const chatDisabled =
     working || adminConfigMissing || modelMissing || !settings;
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    if (!chatDisabled) void handleSend();
+  }
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${embedded ? (compact ? "bg-transparent" : "bg-background") : "bg-sidebar"}`}
+      className={`flex min-h-0 flex-col overflow-hidden ${embedded ? `flex-1 ${compact ? "bg-transparent" : "bg-background"}` : "h-full bg-sidebar"}`}
     >
       {!embedded && (
         <div className="shrink-0 border-b border-border p-3">
@@ -617,7 +637,7 @@ export function PanelAgentPanel({
         </div>
       )}
       <div
-        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${compact ? "gap-2 p-2" : "gap-3 p-3"}`}
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${compact ? "gap-2 px-3 pb-3 pt-2" : "gap-3 p-3"}`}
       >
         <section
           hidden={compact}
@@ -764,17 +784,38 @@ export function PanelAgentPanel({
         </section>
 
         <section
-          className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-1" : "border border-border bg-card p-3"}`}
+          className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-0" : "border border-border bg-card p-3"}`}
         >
-          <div className="flex shrink-0 items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              <BrainCircuit className="size-3.5" />
-              {t("panelAgent.chat")}
+          <div
+            className={`flex shrink-0 items-center justify-between gap-2 ${compact ? "border-b border-border/45 pb-2" : ""}`}
+          >
+            <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
+              {compact ? (
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-accent-brand/25 bg-accent-brand/10 text-accent-brand">
+                  <Bot className="size-3.5" />
+                </span>
+              ) : (
+                <BrainCircuit className="size-3.5 text-muted-foreground" />
+              )}
+              <span
+                className={
+                  compact
+                    ? "truncate"
+                    : "uppercase tracking-widest text-muted-foreground"
+                }
+              >
+                {compact ? t("panelAgent.title") : t("panelAgent.chat")}
+              </span>
             </div>
             <Button
               type="button"
               variant="ghost"
               size="xs"
+              className={
+                compact
+                  ? "h-7 rounded-lg bg-background/35 px-2 backdrop-blur"
+                  : ""
+              }
               onClick={clearConversation}
               disabled={messages.length === 0 && !working}
             >
@@ -784,17 +825,19 @@ export function PanelAgentPanel({
           </div>
           <div
             data-testid="panel-agent-message-list"
-            className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1"
+            className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] ${compact ? "rounded-xl" : ""}`}
           >
             {messages.length === 0 ? (
-              <div className="border border-dashed border-border p-4 text-center text-xs leading-5 text-muted-foreground">
+              <div
+                className={`border border-dashed border-border/70 p-4 text-center text-xs leading-5 text-muted-foreground ${compact ? "rounded-xl bg-background/45 shadow-inner backdrop-blur" : ""}`}
+              >
                 {t("panelAgent.chatEmpty")}
               </div>
             ) : (
               messages.map(renderMessage)
             )}
             {working && (
-              <div className="flex items-center gap-2 border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-muted/40 p-2 text-xs text-muted-foreground backdrop-blur">
                 <RefreshCw className="size-3.5 animate-spin" />
                 {t("panelAgent.working")}
               </div>
@@ -803,34 +846,70 @@ export function PanelAgentPanel({
           <Textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleDraftKeyDown}
             placeholder={t("panelAgent.chatPlaceholder")}
-            rows={compact ? 2 : 4}
-            className={`shrink-0 ${compact ? "bg-background/85" : ""}`}
+            rows={compact ? 3 : 4}
+            className={`shrink-0 resize-none ${compact ? "min-h-20 rounded-xl border-border/60 bg-background/50 shadow-inner backdrop-blur placeholder:text-muted-foreground" : ""}`}
           />
-          <div
-            data-testid="panel-agent-composer"
-            className="flex shrink-0 gap-2"
-          >
-            <Button
-              type="button"
-              className="flex-1"
-              onClick={handleSend}
-              disabled={chatDisabled}
+          {compact ? (
+            <div
+              data-testid="panel-agent-composer"
+              className="flex shrink-0 items-center gap-2 rounded-2xl border border-border/55 bg-background/35 p-2 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
             >
-              <Send className="size-3.5" />
-              {t("panelAgent.send")}
-            </Button>
-            {working && (
               <Button
                 type="button"
-                variant="outline"
-                onClick={stopConversation}
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 rounded-full bg-background/30"
+                disabled
+                aria-label={t("panelAgent.targets")}
               >
-                <Square className="size-3.5" />
-                {t("panelAgent.stop")}
+                <Plus className="size-4" />
               </Button>
-            )}
-          </div>
+              <span className="min-w-0 flex-1 truncate rounded-full bg-background/30 px-2 py-1.5">
+                {selectedModel || settings?.model || t("panelAgent.model")}
+              </span>
+              <span className="flex shrink-0 items-center gap-1 rounded-full bg-accent-brand/10 px-2 py-1.5 text-accent-brand">
+                <Zap className="size-3" />
+                Auto
+              </span>
+              <Button
+                type="button"
+                size="icon"
+                className="size-8 shrink-0 rounded-full bg-zinc-950 text-white shadow-sm hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                onClick={handleSend}
+                disabled={chatDisabled}
+                aria-label={t("panelAgent.send")}
+              >
+                <Send className="size-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <div
+              data-testid="panel-agent-composer"
+              className="flex shrink-0 gap-2"
+            >
+              <Button
+                type="button"
+                className="flex-1"
+                onClick={handleSend}
+                disabled={chatDisabled}
+              >
+                <Send className="size-3.5" />
+                {t("panelAgent.send")}
+              </Button>
+              {working && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={stopConversation}
+                >
+                  <Square className="size-3.5" />
+                  {t("panelAgent.stop")}
+                </Button>
+              )}
+            </div>
+          )}
           {adminConfigMissing && (
             <p className="shrink-0 text-[11px] leading-5 text-amber-600">
               {t("panelAgent.adminConfigRequired")}

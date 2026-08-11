@@ -104,8 +104,8 @@ function storedMobileAgentPosition(): MobileAgentPosition {
 }
 
 function compactMobileAgentPanelHeight(height: number) {
-  const available = Math.max(220, height - 128);
-  return Math.min(Math.max(Math.round(height * 0.42), 240), 360, available);
+  const available = Math.max(360, height - 128);
+  return Math.min(Math.max(Math.round(height * 0.62), 360), 560, available);
 }
 
 function clampUtilityPanelWidth(width: number) {
@@ -467,11 +467,11 @@ export function WorkspaceUtilityRail({
           <div
             role="dialog"
             aria-label={t("workspace.utility.agentChat")}
-            className="fixed z-50 flex w-[min(calc(100vw-1.5rem),26rem)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/80 shadow-2xl shadow-black/25 backdrop-blur-xl"
+            className="fixed z-50 flex w-[min(calc(100vw-1.5rem),26rem)] flex-col overflow-hidden rounded-3xl border border-white/55 bg-background/55 shadow-[0_24px_80px_rgba(0,0,0,0.30)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-950/55"
             hidden={mobileAgentMode !== "quick"}
             style={mobileAgentPanelStyle}
           >
-            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 bg-card/60 px-2.5 backdrop-blur-xl">
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/35 bg-background/35 px-2.5 backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-950/35">
               <div
                 className="flex min-w-0 flex-1 touch-none cursor-grab items-center gap-2 active:cursor-grabbing"
                 data-mobile-agent-drag-handle="true"
@@ -523,7 +523,7 @@ export function WorkspaceUtilityRail({
         {mobileAgentMode === "hidden" ? (
           <button
             type="button"
-            className={`fixed z-50 h-14 w-2 border border-accent-brand/40 bg-accent-brand/60 shadow-lg shadow-black/20 backdrop-blur-xl ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0" : "rounded-r-full border-l-0"}`}
+            className={`fixed z-50 h-14 w-2 border border-accent-brand/35 bg-accent-brand/45 shadow-lg shadow-black/20 backdrop-blur-2xl ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0" : "rounded-r-full border-l-0"}`}
             style={mobileAgentDockStyle}
             onClick={() => setMobileAgentMode("bubble")}
             aria-label={t("workspace.utility.agentFloatRestore")}
@@ -532,7 +532,7 @@ export function WorkspaceUtilityRail({
         ) : mobileAgentMode === "quick" ? null : (
           <button
             type="button"
-            className={`fixed z-50 flex h-11 touch-none items-center gap-2 border border-accent-brand/30 bg-background/75 text-accent-brand shadow-xl shadow-black/20 backdrop-blur-xl active:scale-95 ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0 py-2 pl-2 pr-3" : "rounded-r-full border-l-0 py-2 pl-3 pr-2"}`}
+            className={`fixed z-50 flex h-11 touch-none items-center gap-2 border border-accent-brand/25 bg-background/45 text-accent-brand shadow-xl shadow-black/20 backdrop-blur-2xl active:scale-95 dark:bg-zinc-950/45 ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0 py-2 pl-2 pr-3" : "rounded-r-full border-l-0 py-2 pl-3 pr-2"}`}
             style={mobileAgentDockStyle}
             onPointerDown={onMobileAgentDragPointerDown}
             onClick={onMobileAgentFloatClick}

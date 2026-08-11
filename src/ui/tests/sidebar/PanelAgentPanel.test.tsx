@@ -132,6 +132,32 @@ describe("PanelAgentPanel", () => {
     );
   });
 
+  it("submits the compact composer with Enter like Codex", async () => {
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: { role: "assistant", content: "compact ok", toolCalls: [] },
+    });
+    render(
+      <PanelAgentPanel terminalTabs={[]} activeTabId="" embedded compact />,
+    );
+
+    const input = await screen.findByPlaceholderText(
+      "panelAgent.chatPlaceholder",
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "panelAgent.send" }),
+      ).toHaveProperty("disabled", false),
+    );
+
+    fireEvent.change(input, { target: { value: "hi" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    await screen.findByText("compact ok");
+    expect(screen.getByTestId("panel-agent-composer").className).toContain(
+      "rounded-2xl",
+    );
+  });
+
   it("renders assistant markdown as structured content", async () => {
     panelAgentApi.sendPanelAgentChat.mockResolvedValue({
       message: {
@@ -269,6 +295,10 @@ describe("PanelAgentPanel", () => {
     const composer = screen.getByTestId("panel-agent-composer");
 
     expect(messageList.className).toContain("overflow-y-auto");
+    expect(messageList.className).toContain("touch-pan-y");
+    expect(messageList.className).toContain(
+      "[-webkit-overflow-scrolling:touch]",
+    );
     expect(messageList.contains(composer)).toBe(false);
     expect(composer.className).toContain("shrink-0");
   });
