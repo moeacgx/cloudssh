@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -139,10 +139,12 @@ export function PanelAgentPanel({
   terminalTabs,
   activeTabId,
   embedded = false,
+  compact = false,
 }: {
   terminalTabs: Tab[];
   activeTabId: string;
   embedded?: boolean;
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<PanelAgentSettings | null>(null);
@@ -157,6 +159,11 @@ export function PanelAgentPanel({
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
     new Set(),
   );
+  const tRef = useRef(t);
+
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const activeTerminalTab = useMemo(
@@ -170,7 +177,7 @@ export function PanelAgentPanel({
     }
   }, [activeTerminalTab, selectedTabIds.size]);
 
-  async function loadSettings() {
+  const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
     try {
       const loaded = await getPanelAgentSettings();
@@ -186,15 +193,15 @@ export function PanelAgentPanel({
         ),
       );
     } catch {
-      toast.error(t("panelAgent.settingsLoadFailed"));
+      toast.error(tRef.current("panelAgent.settingsLoadFailed"));
     } finally {
       setSettingsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    loadSettings();
-  }, []);
+    void loadSettings();
+  }, [loadSettings]);
 
   async function loadModels() {
     setModelsLoading(true);
@@ -590,7 +597,7 @@ export function PanelAgentPanel({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${embedded ? "bg-background" : "bg-sidebar"}`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${embedded ? (compact ? "bg-transparent" : "bg-background") : "bg-sidebar"}`}
     >
       {!embedded && (
         <div className="shrink-0 border-b border-border p-3">
@@ -609,8 +616,13 @@ export function PanelAgentPanel({
           </div>
         </div>
       )}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
-        <section className="shrink-0 border border-border bg-card p-3">
+      <div
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${compact ? "gap-2 p-2" : "gap-3 p-3"}`}
+      >
+        <section
+          hidden={compact}
+          className="shrink-0 border border-border bg-card p-3"
+        >
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               <Server className="size-3.5" />
@@ -670,7 +682,10 @@ export function PanelAgentPanel({
           )}
         </section>
 
-        <section className="shrink-0 border border-border bg-card p-3">
+        <section
+          hidden={compact}
+          className="shrink-0 border border-border bg-card p-3"
+        >
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             <ShieldCheck className="size-3.5" />
             {t("panelAgent.skills")}
@@ -695,7 +710,10 @@ export function PanelAgentPanel({
           )}
         </section>
 
-        <section className="shrink-0 border border-border bg-card p-3">
+        <section
+          hidden={compact}
+          className="shrink-0 border border-border bg-card p-3"
+        >
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               <BrainCircuit className="size-3.5" />
@@ -745,7 +763,9 @@ export function PanelAgentPanel({
           )}
         </section>
 
-        <section className="flex min-h-0 flex-1 flex-col gap-2 border border-border bg-card p-3">
+        <section
+          className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-1" : "border border-border bg-card p-3"}`}
+        >
           <div className="flex shrink-0 items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               <BrainCircuit className="size-3.5" />
@@ -784,8 +804,8 @@ export function PanelAgentPanel({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder={t("panelAgent.chatPlaceholder")}
-            rows={4}
-            className="shrink-0"
+            rows={compact ? 2 : 4}
+            className={`shrink-0 ${compact ? "bg-background/85" : ""}`}
           />
           <div
             data-testid="panel-agent-composer"

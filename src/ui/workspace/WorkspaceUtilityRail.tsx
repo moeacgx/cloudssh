@@ -1,4 +1,11 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Activity,
@@ -7,6 +14,8 @@ import {
   FileText,
   FolderOpen,
   Gauge,
+  Minus,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/button";
 import { ScrollArea } from "@/components/scroll-area";
@@ -25,6 +34,80 @@ const UTILITY_PANEL_MIN_WIDTH = 360;
 const UTILITY_PANEL_MAX_WIDTH = 860;
 const UTILITY_PANEL_WIDTH_KEY = "termix_workspaceUtilityWidth";
 
+type MobileAgentMode = "bubble" | "quick" | "hidden";
+type MobileAgentSide = "left" | "right";
+type MobileAgentPosition = {
+  side: MobileAgentSide;
+  y: number;
+};
+
+const MOBILE_AGENT_POSITION_KEY = "termix_mobileAgentPosition";
+const MOBILE_AGENT_MIN_Y = 92;
+const MOBILE_AGENT_BOTTOM_GUARD = 156;
+const MOBILE_AGENT_PANEL_BOTTOM_GUARD = 104;
+
+function readLocalStorage(key: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorage(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage quota/private-mode failures; the in-memory state still works.
+  }
+}
+
+function viewportHeight() {
+  return typeof window === "undefined" ? 720 : window.innerHeight || 720;
+}
+
+function viewportWidth() {
+  return typeof window === "undefined" ? 390 : window.innerWidth || 390;
+}
+
+function clampMobileAgentY(y: number, height = viewportHeight()) {
+  return Math.max(
+    MOBILE_AGENT_MIN_Y,
+    Math.min(height - MOBILE_AGENT_BOTTOM_GUARD, Math.round(y)),
+  );
+}
+
+function defaultMobileAgentPosition(): MobileAgentPosition {
+  const height = viewportHeight();
+  return {
+    side: "right",
+    y: clampMobileAgentY(height * 0.56, height),
+  };
+}
+
+function storedMobileAgentPosition(): MobileAgentPosition {
+  const fallback = defaultMobileAgentPosition();
+  const saved = readLocalStorage(MOBILE_AGENT_POSITION_KEY);
+  if (!saved) return fallback;
+
+  try {
+    const parsed = JSON.parse(saved) as Partial<MobileAgentPosition>;
+    return {
+      side: parsed.side === "left" ? "left" : "right",
+      y: clampMobileAgentY(Number(parsed.y) || fallback.y),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function compactMobileAgentPanelHeight(height: number) {
+  const available = Math.max(220, height - 128);
+  return Math.min(Math.max(Math.round(height * 0.42), 240), 360, available);
+}
+
 function clampUtilityPanelWidth(width: number) {
   return Math.max(
     UTILITY_PANEL_MIN_WIDTH,
@@ -33,7 +116,7 @@ function clampUtilityPanelWidth(width: number) {
 }
 
 function storedUtilityPanelWidth() {
-  const saved = localStorage.getItem(UTILITY_PANEL_WIDTH_KEY);
+  const saved = readLocalStorage(UTILITY_PANEL_WIDTH_KEY);
   const parsed = saved ? Number.parseInt(saved, 10) : NaN;
   return Number.isFinite(parsed)
     ? clampUtilityPanelWidth(parsed)
@@ -65,14 +148,46 @@ export function WorkspaceUtilityRail({
   const { t, i18n } = useTranslation();
   const { activeProject } = useWorkspace();
   const [view, setView] = useState<UtilityView>(null);
-  const [mobileAgentOpen, setMobileAgentOpen] = useState(false);
+  const [mobileAgentMode, setMobileAgentMode] =
+    useState<MobileAgentMode>("bubble");
+  const [mobileAgentPosition, setMobileAgentPosition] =
+    useState<MobileAgentPosition>(storedMobileAgentPosition);
+  const [mobileViewportHeight, setMobileViewportHeight] =
+    useState(viewportHeight);
+  const mobileAgentClickSuppressed = useRef(false);
   const [activities, setActivities] = useState<AgentActivity[]>([]);
   const [panelWidth, setPanelWidth] = useState(storedUtilityPanelWidth);
   const [panelDragging, setPanelDragging] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem(UTILITY_PANEL_WIDTH_KEY, String(panelWidth));
+    writeLocalStorage(UTILITY_PANEL_WIDTH_KEY, String(panelWidth));
   }, [panelWidth]);
+
+  useEffect(() => {
+    writeLocalStorage(
+      MOBILE_AGENT_POSITION_KEY,
+      JSON.stringify(mobileAgentPosition),
+    );
+  }, [mobileAgentPosition]);
+
+  useEffect(() => {
+    function onResize() {
+      const nextHeight = viewportHeight();
+      setMobileViewportHeight(nextHeight);
+      setMobileAgentPosition((current) => ({
+        ...current,
+        y: clampMobileAgentY(current.y, nextHeight),
+      }));
+    }
+
+    onResize();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
 
   function onPanelResizeMouseDown(event: MouseEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -94,6 +209,54 @@ export function WorkspaceUtilityRail({
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+  }
+
+  function onMobileAgentDragPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startPosition = mobileAgentPosition;
+    let moved = false;
+    mobileAgentClickSuppressed.current = false;
+
+    function onMove(moveEvent: globalThis.PointerEvent) {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+      if (Math.hypot(deltaX, deltaY) > 4) moved = true;
+      const width = viewportWidth();
+      const height = viewportHeight();
+      setMobileViewportHeight(height);
+      setMobileAgentPosition({
+        side: moveEvent.clientX < width / 2 ? "left" : "right",
+        y: clampMobileAgentY(startPosition.y + deltaY, height),
+      });
+    }
+
+    function onUp() {
+      if (moved) {
+        mobileAgentClickSuppressed.current = true;
+        window.setTimeout(() => {
+          mobileAgentClickSuppressed.current = false;
+        }, 0);
+      }
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
+  function onMobileAgentFloatClick(event: MouseEvent<HTMLButtonElement>) {
+    if (mobileAgentClickSuppressed.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    setMobileAgentMode("quick");
   }
 
   useEffect(() => {
@@ -118,6 +281,35 @@ export function WorkspaceUtilityRail({
 
   const toggle = (next: Exclude<UtilityView, null>) =>
     setView((current) => (current === next ? null : next));
+
+  const mobilePanelHeight = compactMobileAgentPanelHeight(mobileViewportHeight);
+  const mobilePanelTop = Math.max(
+    12,
+    Math.min(
+      Math.max(
+        12,
+        mobileViewportHeight -
+          mobilePanelHeight -
+          MOBILE_AGENT_PANEL_BOTTOM_GUARD,
+      ),
+      mobileAgentPosition.y - mobilePanelHeight / 2,
+    ),
+  );
+  const mobileAgentDockStyle: CSSProperties = {
+    top: mobileAgentPosition.y,
+    transform: "translateY(-50%)",
+  };
+  const mobileAgentPanelStyle: CSSProperties = {
+    top: mobilePanelTop,
+    height: mobilePanelHeight,
+  };
+  if (mobileAgentPosition.side === "left") {
+    mobileAgentDockStyle.left = 0;
+    mobileAgentPanelStyle.left = 12;
+  } else {
+    mobileAgentDockStyle.right = 0;
+    mobileAgentPanelStyle.right = 12;
+  }
 
   return (
     <>
@@ -269,46 +461,76 @@ export function WorkspaceUtilityRail({
       </aside>
 
       <div className="md:hidden">
-        {mobileAgentOpen ? (
+        {mobileAgentMode === "hidden" ? (
+          <button
+            type="button"
+            className={`fixed z-50 h-14 w-2 border border-accent-brand/40 bg-accent-brand/60 shadow-lg shadow-black/20 backdrop-blur-xl ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0" : "rounded-r-full border-l-0"}`}
+            style={mobileAgentDockStyle}
+            onClick={() => setMobileAgentMode("bubble")}
+            aria-label={t("workspace.utility.agentFloatRestore")}
+            title={t("workspace.utility.agentFloatRestore")}
+          />
+        ) : mobileAgentMode === "quick" ? (
           <div
             role="dialog"
             aria-label={t("workspace.utility.agentChat")}
-            className="fixed top-3 right-0 bottom-3 z-50 flex w-[min(calc(100vw-0.75rem),28rem)] flex-col overflow-hidden rounded-l-2xl border border-r-0 border-border/80 bg-background shadow-2xl shadow-black/25"
+            className="fixed z-50 flex w-[min(calc(100vw-1.5rem),26rem)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/80 shadow-2xl shadow-black/25 backdrop-blur-xl"
+            style={mobileAgentPanelStyle}
           >
-            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-card/95 px-3 backdrop-blur">
-              <div className="flex size-7 items-center justify-center rounded-full border border-accent-brand/30 bg-accent-brand/10 text-accent-brand">
-                <Bot className="size-3.5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold">
-                  {t("workspace.utility.agentChat")}
-                </p>
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {activeProject.name}
-                </p>
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 bg-card/60 px-2.5 backdrop-blur-xl">
+              <div
+                className="flex min-w-0 flex-1 touch-none cursor-grab items-center gap-2 active:cursor-grabbing"
+                data-mobile-agent-drag-handle="true"
+                onPointerDown={onMobileAgentDragPointerDown}
+                title={t("workspace.utility.agentFloatMove")}
+              >
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-full border border-accent-brand/30 bg-accent-brand/15 text-accent-brand">
+                  <Bot className="size-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold">
+                    {t("workspace.utility.agentChat")}
+                  </p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {activeProject.name}
+                  </p>
+                </div>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
                 className="size-7"
-                onClick={() => setMobileAgentOpen(false)}
+                onClick={() => setMobileAgentMode("bubble")}
                 aria-label={t("workspace.utility.agentFloatMinimize")}
                 title={t("workspace.utility.agentFloatMinimize")}
               >
-                <ChevronRight className="size-3.5" />
+                <Minus className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={() => setMobileAgentMode("hidden")}
+                aria-label={t("workspace.utility.agentFloatHide")}
+                title={t("workspace.utility.agentFloatHide")}
+              >
+                <X className="size-3.5" />
               </Button>
             </div>
             <PanelAgentPanel
               terminalTabs={terminalTabs}
               activeTabId={activeTabId}
               embedded
+              compact
             />
           </div>
         ) : (
           <button
             type="button"
-            className="fixed right-0 bottom-24 z-50 flex h-12 items-center gap-2 rounded-l-full border border-r-0 border-accent-brand/30 bg-background/95 px-3 text-accent-brand shadow-xl shadow-black/20 backdrop-blur active:translate-x-0.5"
-            onClick={() => setMobileAgentOpen(true)}
+            className={`fixed z-50 flex h-11 touch-none items-center gap-2 border border-accent-brand/30 bg-background/75 text-accent-brand shadow-xl shadow-black/20 backdrop-blur-xl active:scale-95 ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0 py-2 pl-2 pr-3" : "rounded-r-full border-l-0 py-2 pl-3 pr-2"}`}
+            style={mobileAgentDockStyle}
+            onPointerDown={onMobileAgentDragPointerDown}
+            onClick={onMobileAgentFloatClick}
             aria-label={t("workspace.utility.agentFloat")}
             title={t("workspace.utility.agentFloat")}
           >

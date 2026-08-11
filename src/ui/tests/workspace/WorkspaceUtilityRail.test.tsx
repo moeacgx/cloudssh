@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -15,9 +15,16 @@ vi.mock("@/workspace/WorkspaceContext", () => ({
 }));
 
 vi.mock("@/sidebar/PanelAgentPanel", () => ({
-  PanelAgentPanel: ({ embedded }: { embedded?: boolean }) => (
+  PanelAgentPanel: ({
+    embedded,
+    compact,
+  }: {
+    embedded?: boolean;
+    compact?: boolean;
+  }) => (
     <div data-testid="panel-agent-panel">
       {embedded ? "embedded agent panel" : "standalone agent panel"}
+      {compact ? " compact" : ""}
     </div>
   ),
 }));
@@ -37,23 +44,39 @@ function renderRail() {
 }
 
 describe("WorkspaceUtilityRail", () => {
-  it("opens the panel Agent as a minimizable mobile floating window", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+  it("opens the panel Agent as a compact movable mobile quick-reply window", async () => {
     renderRail();
 
     const floatButton = screen.getByRole("button", {
       name: "workspace.utility.agentFloat",
     });
     expect(floatButton.className).toContain("fixed");
-    expect(floatButton.className).toContain("right-0");
+    expect(floatButton.className).toContain("bg-background/75");
 
+    fireEvent.pointerDown(floatButton, {
+      clientX: 360,
+      clientY: 420,
+      button: 0,
+    });
+    fireEvent.pointerMove(window, { clientX: 20, clientY: 300 });
+    fireEvent.pointerUp(window);
+    expect(floatButton.className).toContain("rounded-r-full");
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
     fireEvent.click(floatButton);
 
     const dialog = screen.getByRole("dialog", {
       name: "workspace.utility.agentChat",
     });
     expect(dialog.className).toContain("fixed");
+    expect(dialog.className).toContain("bg-background/80");
+    expect(dialog.className).toContain("backdrop-blur-xl");
+    expect(Number.parseInt(dialog.style.height, 10)).toBeLessThanOrEqual(360);
     expect(screen.getByTestId("panel-agent-panel").textContent).toContain(
-      "embedded agent panel",
+      "embedded agent panel compact",
     );
 
     fireEvent.click(
@@ -65,6 +88,34 @@ describe("WorkspaceUtilityRail", () => {
     expect(
       screen.queryByRole("dialog", { name: "workspace.utility.agentChat" }),
     ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "workspace.utility.agentFloat" }),
+    ).toBeTruthy();
+  });
+
+  it("hides the mobile Agent to a tucked edge handle", () => {
+    renderRail();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.agentFloat" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.agentFloatHide" }),
+    );
+
+    expect(
+      screen.queryByRole("dialog", { name: "workspace.utility.agentChat" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "workspace.utility.agentFloat" }),
+    ).toBeNull();
+
+    const restoreHandle = screen.getByRole("button", {
+      name: "workspace.utility.agentFloatRestore",
+    });
+    expect(restoreHandle.className).toContain("w-2");
+
+    fireEvent.click(restoreHandle);
     expect(
       screen.getByRole("button", { name: "workspace.utility.agentFloat" }),
     ).toBeTruthy();
