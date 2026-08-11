@@ -1,7 +1,7 @@
 {
   "name": "cloudssh-termix",
   "private": true,
-  "version": "2.6.0-cloudssh.40",
+  "version": "2.6.0-cloudssh.41",
   "description": "Private team SSH workspace with persistent sessions and secure agent access.",
   "author": "Karmaa",
   "license": "Apache-2.0",
