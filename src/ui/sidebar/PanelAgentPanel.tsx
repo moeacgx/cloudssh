@@ -374,6 +374,8 @@ export function PanelAgentPanel({
   const tRef = useRef(t);
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const latestMessageRef = useRef<HTMLDivElement | null>(null);
   const lastConversationActionRef = useRef<number | null>(null);
   const conversationActionHandlersRef = useRef<
     Record<PanelAgentConversationAction["type"], () => void>
@@ -447,6 +449,34 @@ export function PanelAgentPanel({
   useEffect(() => {
     if (models.length === 0) void loadModels();
   }, [loadModels, models.length]);
+
+  const scrollLatestMessageIntoView = useCallback(() => {
+    const messageList = messageListRef.current;
+    if (messageList) {
+      messageList.scrollTop = messageList.scrollHeight;
+      return;
+    }
+    const latestMessage = latestMessageRef.current;
+    if (latestMessage && typeof latestMessage.scrollIntoView === "function") {
+      latestMessage.scrollIntoView({ block: "end", behavior: "auto" });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (historyOpen) return;
+    const firstFrame = window.requestAnimationFrame(
+      scrollLatestMessageIntoView,
+    );
+    const secondFrame = window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(scrollLatestMessageIntoView),
+    );
+    const lateLayout = window.setTimeout(scrollLatestMessageIntoView, 120);
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      window.clearTimeout(lateLayout);
+    };
+  }, [historyOpen, messages, scrollLatestMessageIntoView, working]);
 
   function updateSelectedModel(model: string) {
     setSelectedModel(model);
@@ -1255,7 +1285,9 @@ export function PanelAgentPanel({
           )}
           <div
             data-testid="panel-agent-message-list"
+            ref={messageListRef}
             className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] ${compact ? "rounded-xl" : "rounded-2xl border border-border/40 bg-background/35 p-2"}`}
+            style={{ overflowY: "auto", overscrollBehavior: "contain" }}
           >
             {historyOpen && (
               <div
@@ -1326,6 +1358,7 @@ export function PanelAgentPanel({
                 {t("panelAgent.working")}
               </div>
             )}
+            <div ref={latestMessageRef} className="h-px" aria-hidden="true" />
           </div>
           {attachments.length > 0 && (
             <div

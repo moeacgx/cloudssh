@@ -22,6 +22,26 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { PanelAgentPanel } from "@/sidebar/PanelAgentPanel";
+function mockScrollMetrics(element: HTMLElement) {
+  let scrollTop = 0;
+  Object.defineProperties(element, {
+    clientHeight: { configurable: true, get: () => 320 },
+    scrollHeight: { configurable: true, get: () => 1600 },
+    scrollTop: {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    },
+  });
+  return {
+    current: () => scrollTop,
+    reset: () => {
+      scrollTop = 0;
+    },
+  };
+}
 
 function terminalTab(overrides: Partial<Tab> = {}): Tab {
   return {
@@ -411,6 +431,27 @@ describe("PanelAgentPanel", () => {
     expect(composer.className).toContain("shrink-0");
   });
 
+  it("scrolls the latest chat content into view", async () => {
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: { role: "assistant", content: "bottom reply", toolCalls: [] },
+    });
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await screen.findByText("panelAgent.noTerminals");
+    const scrollMetrics = mockScrollMetrics(
+      screen.getByTestId("panel-agent-message-list"),
+    );
+    scrollMetrics.reset();
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "show latest" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("bottom reply");
+    await waitFor(() => expect(scrollMetrics.current()).toBe(1600));
+  });
   it("runs model tool calls against the selected terminal and continues the chat", async () => {
     const tab = terminalTab();
     panelAgentApi.sendPanelAgentChat
