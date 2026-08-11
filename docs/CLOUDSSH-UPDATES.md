@@ -73,7 +73,7 @@ Socket。正式版本从公开 GitHub Release 匿名下载，运行包在激活�
 {
   "schemaVersion": 3,
   "channel": "stable",
-  "version": "2.6.0-cloudssh.47",
+  "version": "2.6.0-cloudssh.48",
   "image": "ghcr.io/moeacgx/cloudssh",
   "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "revision": "0123456789abcdef0123456789abcdef01234567",
@@ -115,7 +115,7 @@ cd /opt/cloudssh
 sh scripts/cloudssh-host-image-update.sh
 
 # 固定升级到指定正式版本
-sh scripts/cloudssh-host-image-update.sh 2.6.0-cloudssh.47
+sh scripts/cloudssh-host-image-update.sh 2.6.0-cloudssh.48
 ```
 
 脚本需要 `curl`、`docker`、`gzip` 与 `sha256sum`（或 `shasum`），并且要求当前镜像仍在本机，
