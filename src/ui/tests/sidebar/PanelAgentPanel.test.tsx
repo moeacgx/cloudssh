@@ -99,6 +99,10 @@ describe("PanelAgentPanel", () => {
         },
       ],
     });
+    panelAgentApi.getPanelAgentModels.mockResolvedValue([
+      { id: "ops-model" },
+      { id: "gpt-5.5" },
+    ]);
   });
 
   it("allows chat before an SSH terminal is open", async () => {
@@ -122,12 +126,13 @@ describe("PanelAgentPanel", () => {
 
     await screen.findByText("你好");
     expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         messages: [{ role: "user", content: "hi" }],
         skillIds: ["safe-ops"],
         model: "ops-model",
+        reasoningEffort: "auto",
         targets: [],
-      },
+      }),
       expect.any(AbortSignal),
     );
   });
@@ -244,7 +249,7 @@ describe("PanelAgentPanel", () => {
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
     await screen.findByText("panelAgent.noTerminals");
-    expect(await screen.findByDisplayValue("remembered-model")).toBeTruthy();
+    expect(await screen.findByText("remembered-model")).toBeTruthy();
     expect(screen.queryByText("panelAgent.adminConfigRequired")).toBeNull();
     expect(screen.queryByText("panelAgent.modelRequired")).toBeNull();
 
@@ -261,7 +266,7 @@ describe("PanelAgentPanel", () => {
     );
   });
 
-  it("shows a model-specific warning when only the chat model is missing", async () => {
+  it("shows a model-specific warning when no configured or fetched model exists", async () => {
     panelAgentApi.getPanelAgentSettings.mockResolvedValueOnce({
       enabled: true,
       provider: "openai-compatible",
@@ -274,6 +279,7 @@ describe("PanelAgentPanel", () => {
       apiKeyConfigured: true,
       skills: [],
     });
+    panelAgentApi.getPanelAgentModels.mockResolvedValueOnce([]);
 
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
@@ -283,6 +289,72 @@ describe("PanelAgentPanel", () => {
     expect(screen.getByText("panelAgent.send")).toHaveProperty(
       "disabled",
       true,
+    );
+  });
+
+  it("changes model and thinking mode from the compact composer", async () => {
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: { role: "assistant", content: "selected", toolCalls: [] },
+    });
+    render(
+      <PanelAgentPanel terminalTabs={[]} activeTabId="" embedded compact />,
+    );
+
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    const modelButton = await screen.findByRole("button", {
+      name: "panelAgent.model: ops-model",
+    });
+    fireEvent.pointerDown(modelButton, { button: 0, ctrlKey: false });
+    fireEvent.click(modelButton);
+    fireEvent.click(await screen.findByText("gpt-5.5"));
+    const thinkingButton = screen.getByRole("button", {
+      name: "panelAgent.thinking.label: panelAgent.thinking.auto",
+    });
+    fireEvent.pointerDown(thinkingButton, { button: 0, ctrlKey: false });
+    fireEvent.click(thinkingButton);
+    fireEvent.click(await screen.findByText("panelAgent.thinking.high"));
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      {
+        target: { value: "hi" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "panelAgent.send" }));
+
+    await screen.findByText("selected");
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5.5", reasoningEffort: "high" }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("uploads text attachments from the compact plus button", async () => {
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: { role: "assistant", content: "attached", toolCalls: [] },
+    });
+    render(
+      <PanelAgentPanel terminalTabs={[]} activeTabId="" embedded compact />,
+    );
+
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    const file = new File(["log line"], "ops.log", { type: "text/plain" });
+    fireEvent.change(screen.getByTestId("panel-agent-file-input"), {
+      target: { files: [file] },
+    });
+
+    await screen.findByText("ops.log");
+    fireEvent.click(screen.getByRole("button", { name: "panelAgent.send" }));
+
+    await screen.findByText("attached");
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            attachments: [expect.objectContaining({ name: "ops.log" })],
+          }),
+        ],
+      }),
+      expect.any(AbortSignal),
     );
   });
 
@@ -350,10 +422,11 @@ describe("PanelAgentPanel", () => {
 
     await screen.findByText("我先检查 nginx。");
     expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         messages: [{ role: "user", content: "检查 nginx" }],
         skillIds: ["safe-ops"],
         model: "ops-model",
+        reasoningEffort: "auto",
         targets: [
           expect.objectContaining({
             targetId: "tab-1",
@@ -362,7 +435,7 @@ describe("PanelAgentPanel", () => {
             recentOutput: "nginx failed to start",
           }),
         ],
-      },
+      }),
       expect.any(AbortSignal),
     );
     await waitFor(() =>

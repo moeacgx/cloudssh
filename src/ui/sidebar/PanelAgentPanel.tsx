@@ -4,12 +4,15 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
 } from "react";
 import {
   AlertTriangle,
   Bot,
   BrainCircuit,
+  ChevronDown,
+  Paperclip,
   Plus,
   RefreshCw,
   Send,
@@ -19,20 +22,32 @@ import {
   Terminal,
   Trash2,
   Wrench,
+  X,
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/button";
 import { Checkbox } from "@/components/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/dropdown-menu";
 import { Textarea } from "@/components/textarea";
-import { Input } from "@/components/input";
 import {
   getPanelAgentModels,
   getPanelAgentSettings,
   sendPanelAgentChat,
+  type PanelAgentChatAttachment,
   type PanelAgentChatMessage,
   type PanelAgentModel,
+  type PanelAgentReasoningEffort,
   type PanelAgentSettings,
   type PanelAgentTargetInput,
   type PanelAgentToolCall,
@@ -44,6 +59,26 @@ const TOOL_ROUND_LIMIT = 6;
 const COMMAND_OBSERVE_DELAY_MS = 1_200;
 
 const PANEL_AGENT_SELECTED_MODEL_STORAGE_KEY = "panelAgentSelectedModel";
+const PANEL_AGENT_MODEL_LIST_STORAGE_KEY = "panelAgentModelList";
+const PANEL_AGENT_THINKING_MODE_STORAGE_KEY = "panelAgentThinkingMode";
+const PANEL_AGENT_CONVERSATION_HISTORY_STORAGE_KEY =
+  "panelAgentConversationHistory";
+const MAX_CHAT_ATTACHMENTS = 6;
+const MAX_TEXT_ATTACHMENT_CHARS = 80_000;
+const MAX_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const MAX_STORED_CONVERSATIONS = 12;
+
+const PANEL_AGENT_THINKING_MODES: PanelAgentReasoningEffort[] = [
+  "auto",
+  "low",
+  "medium",
+  "high",
+];
+
+export type PanelAgentConversationAction = {
+  id: number;
+  type: "clear" | "new" | "history";
+};
 
 function readStoredSelectedModel(): string {
   if (typeof window === "undefined") return "";
@@ -63,9 +98,57 @@ function writeStoredSelectedModel(model: string) {
   }
 }
 
+function readStoredThinkingMode(): PanelAgentReasoningEffort {
+  if (typeof window === "undefined") return "auto";
+  const value = window.localStorage.getItem(
+    PANEL_AGENT_THINKING_MODE_STORAGE_KEY,
+  );
+  return PANEL_AGENT_THINKING_MODES.includes(value as PanelAgentReasoningEffort)
+    ? (value as PanelAgentReasoningEffort)
+    : "auto";
+}
+
+function writeStoredThinkingMode(mode: PanelAgentReasoningEffort) {
+  window.localStorage.setItem(PANEL_AGENT_THINKING_MODE_STORAGE_KEY, mode);
+}
+
 function panelModelForSettings(settings: PanelAgentSettings): string {
   return readStoredSelectedModel() || settings.model;
 }
+
+function readStoredModelList(): PanelAgentModel[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PANEL_AGENT_MODEL_LIST_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (model): model is PanelAgentModel =>
+          Boolean(model) &&
+          typeof model === "object" &&
+          typeof (model as PanelAgentModel).id === "string",
+      )
+      .slice(0, 512);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredModelList(models: PanelAgentModel[]) {
+  window.localStorage.setItem(
+    PANEL_AGENT_MODEL_LIST_STORAGE_KEY,
+    JSON.stringify(models.slice(0, 512)),
+  );
+}
+
+type PanelAgentStoredConversation = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: PanelAgentChatMessage[];
+};
 
 type ToolResultPayload = {
   ok: boolean;
@@ -94,6 +177,110 @@ function toApiMessages(
   messages: PanelAgentUiMessage[],
 ): PanelAgentChatMessage[] {
   return messages.map(({ id: _id, error: _error, ...message }) => message);
+}
+
+function toUiMessages(
+  messages: PanelAgentChatMessage[],
+): PanelAgentUiMessage[] {
+  return messages.map((message) => ({ ...message, id: createMessageId() }));
+}
+
+function readStoredConversationHistory(): PanelAgentStoredConversation[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(
+      PANEL_AGENT_CONVERSATION_HISTORY_STORAGE_KEY,
+    );
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is PanelAgentStoredConversation =>
+          Boolean(item) &&
+          typeof item === "object" &&
+          typeof (item as PanelAgentStoredConversation).id === "string" &&
+          typeof (item as PanelAgentStoredConversation).title === "string" &&
+          typeof (item as PanelAgentStoredConversation).updatedAt ===
+            "number" &&
+          Array.isArray((item as PanelAgentStoredConversation).messages),
+      )
+      .slice(0, MAX_STORED_CONVERSATIONS);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredConversationHistory(
+  conversations: PanelAgentStoredConversation[],
+) {
+  window.localStorage.setItem(
+    PANEL_AGENT_CONVERSATION_HISTORY_STORAGE_KEY,
+    JSON.stringify(conversations.slice(0, MAX_STORED_CONVERSATIONS)),
+  );
+}
+
+function conversationTitle(messages: PanelAgentUiMessage[]) {
+  const userMessage = messages.find((message) => message.role === "user");
+  const content = userMessage?.content.trim();
+  if (content) return content.slice(0, 64);
+  const firstAttachment = userMessage?.attachments?.[0];
+  return firstAttachment ? firstAttachment.name.slice(0, 64) : "New chat";
+}
+
+function formatAttachmentSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readFileAsText(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsText(file);
+  });
+}
+
+async function fileToAttachment(file: File): Promise<PanelAgentChatAttachment> {
+  const mimeType = file.type || "application/octet-stream";
+  const base = {
+    id: createMessageId(),
+    name: file.name || "attachment",
+    mimeType,
+    size: file.size,
+  };
+
+  if (mimeType.startsWith("image/")) {
+    if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+      throw new Error("image attachment too large");
+    }
+    return { ...base, kind: "image", dataUrl: await readFileAsDataUrl(file) };
+  }
+
+  if (
+    mimeType.startsWith("text/") ||
+    /\.(md|json|ya?ml|log|csv)$/i.test(file.name)
+  ) {
+    const text = await readFileAsText(file);
+    return {
+      ...base,
+      kind: "text",
+      text: text.slice(0, MAX_TEXT_ATTACHMENT_CHARS),
+    };
+  }
+
+  return { ...base, kind: "file" };
 }
 
 function sleep(ms: number) {
@@ -153,11 +340,13 @@ export function PanelAgentPanel({
   activeTabId,
   embedded = false,
   compact = false,
+  conversationAction = null,
 }: {
   terminalTabs: Tab[];
   activeTabId: string;
   embedded?: boolean;
   compact?: boolean;
+  conversationAction?: PanelAgentConversationAction | null;
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<PanelAgentSettings | null>(null);
@@ -167,17 +356,34 @@ export function PanelAgentPanel({
   const [messages, setMessages] = useState<PanelAgentUiMessage[]>([]);
   const [working, setWorking] = useState(false);
   const [selectedModel, setSelectedModel] = useState(readStoredSelectedModel);
-  const [models, setModels] = useState<PanelAgentModel[]>([]);
+  const [models, setModels] = useState(readStoredModelList);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [thinkingMode, setThinkingMode] = useState(readStoredThinkingMode);
+  const [attachments, setAttachments] = useState<PanelAgentChatAttachment[]>(
+    [],
+  );
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState(
+    readStoredConversationHistory,
+  );
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
     new Set(),
   );
   const tRef = useRef(t);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const lastConversationActionRef = useRef<number | null>(null);
+  const conversationActionHandlersRef = useRef<
+    Record<PanelAgentConversationAction["type"], () => void>
+  >({
+    clear: () => undefined,
+    new: () => undefined,
+    history: () => undefined,
+  });
 
   useEffect(() => {
     tRef.current = t;
   }, [t]);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   const activeTerminalTab = useMemo(
     () => terminalTabs.find((tab) => tab.id === activeTabId) ?? terminalTabs[0],
@@ -216,22 +422,38 @@ export function PanelAgentPanel({
     void loadSettings();
   }, [loadSettings]);
 
-  async function loadModels() {
+  const loadModels = useCallback(async () => {
+    if (!settings?.baseUrl || !settings.apiKeyConfigured) return;
     setModelsLoading(true);
     try {
       const loaded = await getPanelAgentModels();
       setModels(loaded);
-      if (!selectedModel && loaded[0]) updateSelectedModel(loaded[0].id);
+      writeStoredModelList(loaded);
+      setSelectedModel((current) => {
+        const next =
+          current.trim() || settings.model.trim() || loaded[0]?.id || "";
+        if (next) writeStoredSelectedModel(next);
+        return next;
+      });
     } catch {
       toast.error(t("panelAgent.modelsLoadFailed"));
     } finally {
       setModelsLoading(false);
     }
-  }
+  }, [settings?.apiKeyConfigured, settings?.baseUrl, settings?.model, t]);
+
+  useEffect(() => {
+    if (models.length === 0) void loadModels();
+  }, [loadModels, models.length]);
 
   function updateSelectedModel(model: string) {
     setSelectedModel(model);
     writeStoredSelectedModel(model);
+  }
+
+  function updateThinkingMode(mode: PanelAgentReasoningEffort) {
+    setThinkingMode(mode);
+    writeStoredThinkingMode(mode);
   }
 
   function toggleTab(tabId: string) {
@@ -383,6 +605,7 @@ export function PanelAgentPanel({
           skillIds: [...selectedSkillIds],
           targets: selectedTargets(),
           model: selectedModel.trim() || undefined,
+          reasoningEffort: thinkingMode,
         },
         signal,
       );
@@ -465,19 +688,51 @@ export function PanelAgentPanel({
     }
   }
 
+  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    if (files.length === 0) return;
+    const remainingSlots = MAX_CHAT_ATTACHMENTS - attachments.length;
+    if (remainingSlots <= 0) {
+      toast.error(t("panelAgent.attachmentLimit"));
+      input.value = "";
+      return;
+    }
+    try {
+      const prepared = await Promise.all(
+        files.slice(0, remainingSlots).map(fileToAttachment),
+      );
+      setAttachments((current) => [...current, ...prepared]);
+      if (files.length > remainingSlots) {
+        toast.error(t("panelAgent.attachmentLimit"));
+      }
+    } catch {
+      toast.error(t("panelAgent.attachmentLoadFailed"));
+    } finally {
+      input.value = "";
+    }
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => current.filter((item) => item.id !== id));
+  }
+
   async function handleSend() {
     const content = draft.trim();
-    if (!content) {
+    if (!content && attachments.length === 0) {
       toast.error(t("panelAgent.instructionRequired"));
       return;
     }
     const userMessage: PanelAgentUiMessage = {
       id: createMessageId(),
       role: "user",
-      content,
+      content: content || t("panelAgent.attachmentPrompt"),
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
     const nextMessages = [...messages, userMessage];
     setDraft("");
+    setAttachments([]);
+    setHistoryOpen(false);
     setMessages(nextMessages);
     await startConversation(nextMessages, userMessage.id);
   }
@@ -498,12 +753,67 @@ export function PanelAgentPanel({
     abortControllerRef.current?.abort();
   }
 
-  function clearConversation() {
+  function abortConversation() {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     setWorking(false);
-    setMessages([]);
   }
+
+  function archiveCurrentConversation() {
+    if (messages.length === 0) return;
+    const record: PanelAgentStoredConversation = {
+      id: createMessageId(),
+      title: conversationTitle(messages),
+      updatedAt: Date.now(),
+      messages: toApiMessages(messages),
+    };
+    setConversationHistory((current) => {
+      const next = [record, ...current].slice(0, MAX_STORED_CONVERSATIONS);
+      writeStoredConversationHistory(next);
+      return next;
+    });
+  }
+
+  function clearConversation() {
+    abortConversation();
+    setMessages([]);
+    setAttachments([]);
+    setHistoryOpen(false);
+  }
+
+  function newConversation() {
+    abortConversation();
+    archiveCurrentConversation();
+    setMessages([]);
+    setAttachments([]);
+    setHistoryOpen(false);
+  }
+
+  function toggleHistory() {
+    setHistoryOpen((current) => !current);
+  }
+
+  function restoreConversation(id: string) {
+    const stored = conversationHistory.find((item) => item.id === id);
+    if (!stored) return;
+    abortConversation();
+    setMessages(toUiMessages(stored.messages));
+    setAttachments([]);
+    setHistoryOpen(false);
+  }
+
+  conversationActionHandlersRef.current = {
+    clear: clearConversation,
+    new: newConversation,
+    history: toggleHistory,
+  };
+
+  useEffect(() => {
+    if (!conversationAction) return;
+    if (lastConversationActionRef.current === conversationAction.id) return;
+    lastConversationActionRef.current = conversationAction.id;
+    conversationActionHandlersRef.current[conversationAction.type]();
+  }, [conversationAction]);
 
   function renderToolMessage(message: PanelAgentChatMessage, index: number) {
     const payload = parseToolResult(message.content);
@@ -563,6 +873,19 @@ export function PanelAgentPanel({
             <MarkdownRenderer compact content={message.content} />
           </div>
         )}
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {message.attachments.map((attachment) => (
+              <span
+                key={attachment.id}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/70 bg-background/55 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur"
+              >
+                <Paperclip className="size-3" />
+                <span className="truncate">{attachment.name}</span>
+              </span>
+            ))}
+          </div>
+        )}
         {message.error && (
           <div className="mt-2 space-y-2 border border-destructive/30 bg-destructive/5 p-2 text-[11px] text-destructive">
             <p className="whitespace-pre-wrap leading-5">{message.error}</p>
@@ -597,6 +920,14 @@ export function PanelAgentPanel({
 
   const selectedCount = selectedTabIds.size;
   const activeSkills = settings?.skills.filter((skill) => skill.enabled) ?? [];
+  const currentModelLabel =
+    selectedModel.trim() || settings?.model || t("panelAgent.model");
+  const selectableModels =
+    models.length > 0
+      ? models
+      : currentModelLabel !== t("panelAgent.model")
+        ? [{ id: currentModelLabel } satisfies PanelAgentModel]
+        : [];
   const hasSelectedModel = Boolean(selectedModel.trim() || settings?.model);
   const adminConfigMissing = Boolean(
     settings &&
@@ -613,6 +944,108 @@ export function PanelAgentPanel({
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     if (!chatDisabled) void handleSend();
+  }
+
+  function renderModelSelector(isCompact: boolean) {
+    return (
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (open && models.length === 0 && !modelsLoading) void loadModels();
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className={
+              isCompact
+                ? "min-w-0 flex-1 justify-between rounded-full bg-background/20 px-2 py-1.5 text-[11px] backdrop-blur hover:bg-background/35"
+                : "min-w-0 max-w-56 justify-between border border-border/70 bg-background"
+            }
+            aria-label={`${t("panelAgent.model")}: ${currentModelLabel}`}
+          >
+            <span className="truncate">{currentModelLabel}</span>
+            <ChevronDown className="size-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-60 rounded-xl">
+          <DropdownMenuLabel>{t("panelAgent.model")}</DropdownMenuLabel>
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              void loadModels();
+            }}
+            disabled={modelsLoading || !settings?.apiKeyConfigured}
+          >
+            <RefreshCw
+              className={`size-3 ${modelsLoading ? "animate-spin" : ""}`}
+            />
+            {modelsLoading
+              ? t("panelAgent.fetchingModels")
+              : t("panelAgent.fetchModels")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {selectableModels.length === 0 ? (
+            <DropdownMenuLabel>
+              {t("panelAgent.modelSelectPlaceholder")}
+            </DropdownMenuLabel>
+          ) : (
+            <DropdownMenuRadioGroup
+              value={selectedModel || settings?.model || ""}
+              onValueChange={updateSelectedModel}
+            >
+              {selectableModels.map((model) => (
+                <DropdownMenuRadioItem key={model.id} value={model.id}>
+                  <span className="truncate">{model.id}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  function renderThinkingSelector(isCompact: boolean) {
+    const label = t(`panelAgent.thinking.${thinkingMode}`);
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className={
+              isCompact
+                ? "flex shrink-0 items-center gap-1 rounded-full bg-accent-brand/10 px-2 py-1.5 text-[11px] text-accent-brand hover:bg-accent-brand/15"
+                : "border border-border/70 bg-background text-muted-foreground"
+            }
+            aria-label={`${t("panelAgent.thinking.label")}: ${label}`}
+          >
+            <Zap className="size-3" />
+            <span>{label}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40 rounded-xl">
+          <DropdownMenuLabel>
+            {t("panelAgent.thinking.label")}
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={thinkingMode}
+            onValueChange={(value) =>
+              updateThinkingMode(value as PanelAgentReasoningEffort)
+            }
+          >
+            {PANEL_AGENT_THINKING_MODES.map((mode) => (
+              <DropdownMenuRadioItem key={mode} value={mode}>
+                {t(`panelAgent.thinking.${mode}`)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   }
 
   return (
@@ -731,108 +1164,76 @@ export function PanelAgentPanel({
         </section>
 
         <section
-          hidden={compact}
-          className="shrink-0 border border-border bg-card p-3"
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              <BrainCircuit className="size-3.5" />
-              {t("panelAgent.model")}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={loadModels}
-              disabled={
-                modelsLoading ||
-                !settings?.baseUrl ||
-                !settings.apiKeyConfigured
-              }
-            >
-              <RefreshCw
-                className={`size-3 ${modelsLoading ? "animate-spin" : ""}`}
-              />
-              {modelsLoading
-                ? t("panelAgent.fetchingModels")
-                : t("panelAgent.fetchModels")}
-            </Button>
-          </div>
-          <Input
-            value={selectedModel}
-            onChange={(event) => updateSelectedModel(event.target.value)}
-            placeholder={settings?.model || "gpt-4.1-mini"}
-          />
-          {models.length > 0 && (
-            <select
-              className="mt-2 flex h-8 w-full border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
-              value={
-                models.some((model) => model.id === selectedModel)
-                  ? selectedModel
-                  : ""
-              }
-              onChange={(event) => updateSelectedModel(event.target.value)}
-            >
-              <option value="">{t("panelAgent.modelSelectPlaceholder")}</option>
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.id}
-                </option>
-              ))}
-            </select>
-          )}
-        </section>
-
-        <section
           className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-0" : "border border-border bg-card p-3"}`}
         >
-          <div
-            className={`flex shrink-0 items-center justify-between gap-2 ${compact ? "border-b border-border/45 pb-2" : ""}`}
-          >
-            <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
-              {compact ? (
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-accent-brand/25 bg-accent-brand/10 text-accent-brand">
-                  <Bot className="size-3.5" />
-                </span>
-              ) : (
+          {!compact && (
+            <div className="flex shrink-0 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
                 <BrainCircuit className="size-3.5 text-muted-foreground" />
-              )}
-              <span
-                className={
-                  compact
-                    ? "truncate"
-                    : "uppercase tracking-widest text-muted-foreground"
-                }
+                <span className="uppercase tracking-widest text-muted-foreground">
+                  {t("panelAgent.chat")}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={clearConversation}
+                disabled={messages.length === 0 && !working}
               >
-                {compact ? t("panelAgent.title") : t("panelAgent.chat")}
-              </span>
+                <Trash2 className="size-3" />
+                {t("panelAgent.clear")}
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              className={
-                compact
-                  ? "h-7 rounded-lg bg-background/35 px-2 backdrop-blur"
-                  : ""
-              }
-              onClick={clearConversation}
-              disabled={messages.length === 0 && !working}
-            >
-              <Trash2 className="size-3" />
-              {t("panelAgent.clear")}
-            </Button>
-          </div>
+          )}
           <div
             data-testid="panel-agent-message-list"
             className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] ${compact ? "rounded-xl" : ""}`}
           >
-            {messages.length === 0 ? (
+            {historyOpen && (
               <div
-                className={`border border-dashed border-border/70 p-4 text-center text-xs leading-5 text-muted-foreground ${compact ? "rounded-xl bg-background/45 shadow-inner backdrop-blur" : ""}`}
+                data-testid="panel-agent-history"
+                className="space-y-2 rounded-xl border border-border/60 bg-background/35 p-2 text-xs shadow-sm backdrop-blur"
               >
-                {t("panelAgent.chatEmpty")}
+                <div className="font-semibold text-foreground">
+                  {t("panelAgent.history")}
+                </div>
+                {conversationHistory.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("panelAgent.noHistory")}
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {conversationHistory.map((conversation) => (
+                      <button
+                        key={conversation.id}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg border border-border/60 bg-background/35 px-2 py-1.5 text-left text-[11px] hover:bg-background/55"
+                        onClick={() => restoreConversation(conversation.id)}
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {conversation.title}
+                        </span>
+                        <time className="shrink-0 text-[10px] text-muted-foreground">
+                          {new Date(conversation.updatedAt).toLocaleTimeString(
+                            [],
+                            { hour: "2-digit", minute: "2-digit" },
+                          )}
+                        </time>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+            )}
+            {messages.length === 0 && !historyOpen ? (
+              compact ? (
+                <div className="min-h-4" aria-hidden="true" />
+              ) : (
+                <div className="border border-dashed border-border/70 p-4 text-center text-xs leading-5 text-muted-foreground">
+                  {t("panelAgent.chatEmpty")}
+                </div>
+              )
             ) : (
               messages.map(renderMessage)
             )}
@@ -843,73 +1244,116 @@ export function PanelAgentPanel({
               </div>
             )}
           </div>
+          {attachments.length > 0 && (
+            <div
+              data-testid="panel-agent-attachments"
+              className="flex shrink-0 flex-wrap gap-1.5"
+            >
+              {attachments.map((attachment) => (
+                <span
+                  key={attachment.id}
+                  className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 bg-background/35 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur"
+                >
+                  <Paperclip className="size-3" />
+                  <span className="max-w-36 truncate">{attachment.name}</span>
+                  <span>{formatAttachmentSize(attachment.size)}</span>
+                  <button
+                    type="button"
+                    className="rounded-full p-0.5 hover:bg-muted"
+                    onClick={() => removeAttachment(attachment.id)}
+                    aria-label={t("panelAgent.removeAttachment")}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <Textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleDraftKeyDown}
             placeholder={t("panelAgent.chatPlaceholder")}
             rows={compact ? 3 : 4}
-            className={`shrink-0 resize-none ${compact ? "min-h-20 rounded-xl border-border/60 bg-background/50 shadow-inner backdrop-blur placeholder:text-muted-foreground" : ""}`}
+            className={`shrink-0 resize-none ${compact ? "min-h-20 rounded-xl border-border/45 bg-background/25 shadow-inner backdrop-blur placeholder:text-muted-foreground" : ""}`}
+            style={
+              compact
+                ? {
+                    backgroundColor: "rgba(255, 255, 255, 0.28)",
+                    backdropFilter: "blur(18px) saturate(150%)",
+                    WebkitBackdropFilter: "blur(18px) saturate(150%)",
+                  }
+                : undefined
+            }
           />
-          {compact ? (
-            <div
-              data-testid="panel-agent-composer"
-              className="flex shrink-0 items-center gap-2 rounded-2xl border border-border/55 bg-background/35 p-2 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*,audio/*,text/*,.md,.json,.yaml,.yml,.log,.csv"
+            className="hidden"
+            data-testid="panel-agent-file-input"
+            onChange={handleAttachmentChange}
+          />
+          <div
+            data-testid="panel-agent-composer"
+            className={
+              compact
+                ? "flex shrink-0 items-center gap-2 rounded-2xl border border-border/45 bg-background/25 p-2 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
+                : "flex shrink-0 items-center gap-2"
+            }
+            style={
+              compact
+                ? {
+                    backgroundColor: "rgba(255, 255, 255, 0.22)",
+                    backdropFilter: "blur(22px) saturate(150%)",
+                    WebkitBackdropFilter: "blur(22px) saturate(150%)",
+                  }
+                : undefined
+            }
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={
+                compact
+                  ? "size-8 shrink-0 rounded-full bg-background/20"
+                  : "size-8 shrink-0"
+              }
+              onClick={() => fileInputRef.current?.click()}
+              aria-label={t("panelAgent.attach")}
             >
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0 rounded-full bg-background/30"
-                disabled
-                aria-label={t("panelAgent.targets")}
-              >
-                <Plus className="size-4" />
-              </Button>
-              <span className="min-w-0 flex-1 truncate rounded-full bg-background/30 px-2 py-1.5">
-                {selectedModel || settings?.model || t("panelAgent.model")}
-              </span>
-              <span className="flex shrink-0 items-center gap-1 rounded-full bg-accent-brand/10 px-2 py-1.5 text-accent-brand">
-                <Zap className="size-3" />
-                Auto
-              </span>
-              <Button
-                type="button"
-                size="icon"
-                className="size-8 shrink-0 rounded-full bg-zinc-950 text-white shadow-sm hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
-                onClick={handleSend}
-                disabled={chatDisabled}
-                aria-label={t("panelAgent.send")}
-              >
-                <Send className="size-3.5" />
-              </Button>
-            </div>
-          ) : (
-            <div
-              data-testid="panel-agent-composer"
-              className="flex shrink-0 gap-2"
+              <Plus className="size-4" />
+            </Button>
+            {renderModelSelector(compact)}
+            {renderThinkingSelector(compact)}
+            <Button
+              type="button"
+              size={compact ? "icon" : "default"}
+              className={
+                compact
+                  ? "size-8 shrink-0 rounded-full bg-zinc-950 text-white shadow-sm hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                  : "flex-1"
+              }
+              onClick={handleSend}
+              disabled={chatDisabled}
+              aria-label={t("panelAgent.send")}
             >
+              <Send className="size-3.5" />
+              {!compact && t("panelAgent.send")}
+            </Button>
+            {working && !compact && (
               <Button
                 type="button"
-                className="flex-1"
-                onClick={handleSend}
-                disabled={chatDisabled}
+                variant="outline"
+                onClick={stopConversation}
               >
-                <Send className="size-3.5" />
-                {t("panelAgent.send")}
+                <Square className="size-3.5" />
+                {t("panelAgent.stop")}
               </Button>
-              {working && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={stopConversation}
-                >
-                  <Square className="size-3.5" />
-                  {t("panelAgent.stop")}
-                </Button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
           {adminConfigMissing && (
             <p className="shrink-0 text-[11px] leading-5 text-amber-600">
               {t("panelAgent.adminConfigRequired")}

@@ -14,7 +14,10 @@ import {
   FileText,
   FolderOpen,
   Gauge,
+  History,
+  MessageSquarePlus,
   Minus,
+  Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/button";
@@ -24,7 +27,10 @@ import {
   getProjectAgentActivity,
   type AgentActivity,
 } from "@/api/workspace-api";
-import { PanelAgentPanel } from "@/sidebar/PanelAgentPanel";
+import {
+  PanelAgentPanel,
+  type PanelAgentConversationAction,
+} from "@/sidebar/PanelAgentPanel";
 import type { Host, Tab } from "@/types/ui-types";
 
 type UtilityView = "agent" | "activity" | null;
@@ -159,6 +165,8 @@ export function WorkspaceUtilityRail({
   const [activities, setActivities] = useState<AgentActivity[]>([]);
   const [panelWidth, setPanelWidth] = useState(storedUtilityPanelWidth);
   const [panelDragging, setPanelDragging] = useState(false);
+  const [mobileConversationAction, setMobileConversationAction] =
+    useState<PanelAgentConversationAction | null>(null);
 
   useEffect(() => {
     writeLocalStorage(UTILITY_PANEL_WIDTH_KEY, String(panelWidth));
@@ -261,6 +269,12 @@ export function WorkspaceUtilityRail({
     setMobileAgentMode("quick");
   }
 
+  function runMobileConversationAction(
+    type: PanelAgentConversationAction["type"],
+  ) {
+    setMobileConversationAction({ id: Date.now(), type });
+  }
+
   useEffect(() => {
     if (view !== "activity") return;
     let cancelled = false;
@@ -304,6 +318,9 @@ export function WorkspaceUtilityRail({
   const mobileAgentPanelStyle: CSSProperties = {
     top: mobilePanelTop,
     height: mobilePanelHeight,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    backdropFilter: "blur(40px) saturate(170%)",
+    WebkitBackdropFilter: "blur(40px) saturate(170%)",
   };
   if (mobileAgentPosition.side === "left") {
     mobileAgentDockStyle.left = 0;
@@ -467,11 +484,11 @@ export function WorkspaceUtilityRail({
           <div
             role="dialog"
             aria-label={t("workspace.utility.agentChat")}
-            className="fixed z-50 flex w-[min(calc(100vw-1.5rem),26rem)] flex-col overflow-hidden rounded-3xl border border-white/55 bg-background/55 shadow-[0_24px_80px_rgba(0,0,0,0.30)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-950/55"
+            className="fixed z-50 flex w-[min(calc(100vw-1.5rem),26rem)] flex-col overflow-hidden rounded-3xl border border-white/45 bg-white/30 shadow-[0_24px_80px_rgba(0,0,0,0.26)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-950/35"
             hidden={mobileAgentMode !== "quick"}
             style={mobileAgentPanelStyle}
           >
-            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/35 bg-background/35 px-2.5 backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-950/35">
+            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-white/30 bg-white/20 px-2.5 backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-950/20">
               <div
                 className="flex min-w-0 flex-1 touch-none cursor-grab items-center gap-2 active:cursor-grabbing"
                 data-mobile-agent-drag-handle="true"
@@ -490,6 +507,36 @@ export function WorkspaceUtilityRail({
                   </p>
                 </div>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-full bg-background/15"
+                onClick={() => runMobileConversationAction("clear")}
+                aria-label={t("panelAgent.clear")}
+                title={t("panelAgent.clear")}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-full bg-background/15"
+                onClick={() => runMobileConversationAction("history")}
+                aria-label={t("panelAgent.history")}
+                title={t("panelAgent.history")}
+              >
+                <History className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-full bg-background/15"
+                onClick={() => runMobileConversationAction("new")}
+                aria-label={t("panelAgent.newChat")}
+                title={t("panelAgent.newChat")}
+              >
+                <MessageSquarePlus className="size-3.5" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -516,6 +563,7 @@ export function WorkspaceUtilityRail({
               activeTabId={activeTabId}
               embedded
               compact
+              conversationAction={mobileConversationAction}
             />
           </div>
         )}

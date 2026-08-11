@@ -73,7 +73,7 @@ describe("WorkspaceUtilityRail", () => {
       name: "workspace.utility.agentChat",
     });
     expect(dialog.className).toContain("fixed");
-    expect(dialog.className).toContain("bg-background/55");
+    expect(dialog.className).toContain("bg-white/30");
     expect(dialog.className).toContain("backdrop-blur-2xl");
     expect(Number.parseInt(dialog.style.height, 10)).toBeLessThanOrEqual(560);
     expect(Number.parseInt(dialog.style.height, 10)).toBeGreaterThanOrEqual(

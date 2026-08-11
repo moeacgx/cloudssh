@@ -14,6 +14,22 @@ const PANEL_AGENT_API_KEY = "panel_agent_api_key";
 const MAX_SKILLS = 24;
 const MAX_SKILL_CONTENT_LENGTH = 8_000;
 const MAX_TARGETS = 16;
+const MAX_CHAT_ATTACHMENTS = 6;
+const MAX_ATTACHMENT_NAME_LENGTH = 160;
+const MAX_ATTACHMENT_TEXT_LENGTH = 80_000;
+const MAX_ATTACHMENT_DATA_URL_LENGTH = 6_000_000;
+
+type PanelAgentReasoningEffort = "auto" | "low" | "medium" | "high";
+
+interface PanelAgentChatAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "text" | "file";
+  dataUrl?: string;
+  text?: string;
+}
 const MAX_CONTEXT_BYTES_PER_TARGET = 24_000;
 const MAX_INSTRUCTION_LENGTH = 8_000;
 const MAX_COMMANDS_PER_TARGET = 8;
@@ -74,6 +90,7 @@ interface PanelAgentChatInput {
   messages: PanelAgentChatMessage[];
   skillIds?: string[];
   targets: PanelAgentTargetInput[];
+  reasoningEffort?: PanelAgentReasoningEffort;
   model?: string;
 }
 
@@ -112,6 +129,7 @@ export interface PanelAgentChatMessage {
   toolCallId?: string;
   name?: string;
   toolCalls?: PanelAgentToolCall[];
+  attachments?: PanelAgentChatAttachment[];
 }
 
 export interface PanelAgentChatResponse {
@@ -382,6 +400,39 @@ function sanitizeToolCall(
   };
 }
 
+function safeReasoningEffort(value: unknown): PanelAgentReasoningEffort {
+  return value === "low" || value === "medium" || value === "high"
+    ? value
+    : "auto";
+}
+
+function sanitizeChatAttachment(raw: unknown): PanelAgentChatAttachment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const kind = value.kind;
+  if (kind !== "image" && kind !== "text" && kind !== "file") return null;
+  const attachment: PanelAgentChatAttachment = {
+    id: text(value.id, "attachment", 128),
+    name: text(value.name, "attachment", MAX_ATTACHMENT_NAME_LENGTH),
+    mimeType: text(value.mimeType, "application/octet-stream", 120),
+    size: numberInRange(value.size, 0, 0, MAX_ATTACHMENT_DATA_URL_LENGTH),
+    kind,
+  };
+  if (kind === "text") {
+    const content = redactTerminalSecrets(
+      text(value.text, "", MAX_ATTACHMENT_TEXT_LENGTH),
+    );
+    if (content) attachment.text = content;
+  }
+  if (kind === "image") {
+    const dataUrl = text(value.dataUrl, "", MAX_ATTACHMENT_DATA_URL_LENGTH);
+    if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl)) {
+      attachment.dataUrl = dataUrl;
+    }
+  }
+  return attachment;
+}
+
 function sanitizeChatMessage(raw: unknown): PanelAgentChatMessage | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
@@ -390,10 +441,26 @@ function sanitizeChatMessage(raw: unknown): PanelAgentChatMessage | null {
   const maxLength =
     role === "tool" ? MAX_TOOL_RESULT_LENGTH : MAX_INSTRUCTION_LENGTH;
   const content = redactTerminalSecrets(text(value.content, "", maxLength));
-  if (!content && role !== "assistant") return null;
+  const attachments =
+    role === "user" && Array.isArray(value.attachments)
+      ? value.attachments
+          .map(sanitizeChatAttachment)
+          .filter((attachment): attachment is PanelAgentChatAttachment =>
+            Boolean(attachment),
+          )
+          .slice(0, MAX_CHAT_ATTACHMENTS)
+      : undefined;
+  if (
+    !content &&
+    role !== "assistant" &&
+    (!attachments || attachments.length === 0)
+  ) {
+    return null;
+  }
   return {
     role,
     content,
+    attachments,
     toolCallId: text(value.toolCallId, "", 128) || undefined,
     name: text(value.name, "", 120) || undefined,
     toolCalls: Array.isArray(value.toolCalls)
@@ -433,6 +500,7 @@ function parseChatInput(body: unknown): PanelAgentChatInput {
       ? value.skillIds.map((id) => text(id, "", 96)).filter(Boolean)
       : [],
     targets,
+    reasoningEffort: safeReasoningEffort(value.reasoningEffort),
     model: text(value.model, "", 160) || undefined,
   };
 }
@@ -667,9 +735,17 @@ function safeRisk(value: unknown): PanelAgentRisk {
     : "medium";
 }
 
+type ModelChatContent =
+  | string
+  | null
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >;
+
 type ModelChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: ModelChatContent;
   tool_call_id?: string;
   name?: string;
   tool_calls?: Array<{
@@ -765,6 +841,32 @@ function toModelToolCall(toolCall: PanelAgentToolCall) {
   };
 }
 
+function userAttachmentSummary(attachment: PanelAgentChatAttachment) {
+  if (attachment.kind === "text" && attachment.text) {
+    return `\n\n### Attachment: ${attachment.name} (${attachment.mimeType})\n${attachment.text}`;
+  }
+  if (attachment.kind === "image" && attachment.dataUrl) {
+    return `\n\n[Image attachment: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes)]`;
+  }
+  return `\n\n[Attachment: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes). Binary media content is not expanded as text.]`;
+}
+
+function userMessageContent(message: PanelAgentChatMessage): ModelChatContent {
+  const attachments = message.attachments ?? [];
+  if (attachments.length === 0) return message.content;
+  const textContent =
+    (message.content || "User attached files.") +
+    attachments.map(userAttachmentSummary).join("");
+  const imageParts = attachments
+    .filter((attachment) => attachment.kind === "image" && attachment.dataUrl)
+    .map((attachment) => ({
+      type: "image_url" as const,
+      image_url: { url: attachment.dataUrl as string },
+    }));
+  if (imageParts.length === 0) return textContent;
+  return [{ type: "text" as const, text: textContent }, ...imageParts];
+}
+
 function toModelMessage(
   message: PanelAgentChatMessage,
 ): ModelChatMessage | null {
@@ -784,7 +886,7 @@ function toModelMessage(
       tool_calls: message.toolCalls?.map(toModelToolCall),
     };
   }
-  return { role: "user", content: message.content };
+  return { role: "user", content: userMessageContent(message) };
 }
 
 function buildChatPrompt(
@@ -868,6 +970,9 @@ async function requestChatCompletion(
     max_tokens: settings.maxTokens,
     messages: buildChatPrompt(input, settings, includeTools),
   };
+  if (input.reasoningEffort && input.reasoningEffort !== "auto") {
+    body.reasoning_effort = input.reasoningEffort;
+  }
   if (includeTools) {
     body.tools = PANEL_AGENT_TOOLS;
     body.tool_choice = "auto";

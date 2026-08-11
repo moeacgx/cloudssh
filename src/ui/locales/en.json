@@ -666,10 +666,10 @@
     "model": "Model",
     "fetchModels": "Fetch models",
     "fetchingModels": "Fetching...",
-    "modelSelectPlaceholder": "Select a model",
+    "modelSelectPlaceholder": "No models loaded",
     "modelsLoadFailed": "Failed to load models",
     "chat": "Context chat",
-    "chatEmpty": "Chat with the panel Agent like Codex. It can read selected terminal context and use tools to run safe commands on selected SSH sessions.",
+    "chatEmpty": "Start a chat or attach context for the Panel Agent.",
     "chatPlaceholder": "Ask the Agent to inspect, install, fix, or operate across the selected servers...",
     "send": "Send",
     "working": "Agent working...",
@@ -683,7 +683,22 @@
     "chatStopped": "Panel Agent request stopped",
     "retry": "Retry",
     "stop": "Stop",
-    "clear": "Clear"
+    "clear": "Clear chat",
+    "history": "History",
+    "newChat": "New chat",
+    "noHistory": "No saved chat history yet.",
+    "attach": "Attach files",
+    "removeAttachment": "Remove attachment",
+    "attachmentPrompt": "Please review the attached files.",
+    "attachmentLimit": "You can attach up to 6 files.",
+    "attachmentLoadFailed": "Failed to load attachment.",
+    "thinking": {
+      "label": "Thinking",
+      "auto": "Auto",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    }
   },
   "workspace": {
     "personalSpace": "Personal space",

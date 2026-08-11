@@ -666,10 +666,10 @@
     "model": "模型",
     "fetchModels": "拉取模型",
     "fetchingModels": "拉取中...",
-    "modelSelectPlaceholder": "选择模型",
+    "modelSelectPlaceholder": "暂无模型列表",
     "modelsLoadFailed": "模型列表加载失败",
     "chat": "上下文对话",
-    "chatEmpty": "像 Codex 一样和面板 Agent 对话。它可以读取选中的终端上下文，并通过工具在选中的 SSH 会话里执行安全命令。",
+    "chatEmpty": "开始对话，或上传附件给面板 Agent 分析。",
     "chatPlaceholder": "让 Agent 检查、安装、修复或跨选中服务器执行运维操作...",
     "send": "发送",
     "working": "Agent 执行中...",
@@ -683,7 +683,22 @@
     "chatStopped": "已停止面板 Agent 请求",
     "retry": "重试",
     "stop": "停止",
-    "clear": "清理对话"
+    "clear": "清理对话",
+    "history": "历史对话",
+    "newChat": "新建对话",
+    "noHistory": "还没有保存的历史对话。",
+    "attach": "上传附件",
+    "removeAttachment": "移除附件",
+    "attachmentPrompt": "请分析附件。",
+    "attachmentLimit": "最多上传 6 个附件。",
+    "attachmentLoadFailed": "附件读取失败。",
+    "thinking": {
+      "label": "思考",
+      "auto": "Auto",
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    }
   },
   "workspace": {
     "personalSpace": "个人空间",

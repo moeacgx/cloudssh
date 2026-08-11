@@ -258,8 +258,24 @@ describe("Panel Agent routes", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        messages: [{ role: "user", content: "检查 nginx" }],
+        messages: [
+          {
+            role: "user",
+            content: "检查 nginx",
+            attachments: [
+              {
+                id: "att-1",
+                name: "ops.log",
+                mimeType: "text/plain",
+                size: 64,
+                kind: "text",
+                text: "token=leaked\nnginx error",
+              },
+            ],
+          },
+        ],
         model: "override-model",
+        reasoningEffort: "high",
         targets: [
           {
             targetId: "tab-1",
@@ -291,6 +307,7 @@ describe("Panel Agent routes", () => {
     });
     const request = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(request.model).toBe("override-model");
+    expect(request.reasoning_effort).toBe("high");
     expect(
       request.tools.map(
         (tool: { function: { name: string } }) => tool.function.name,
@@ -298,6 +315,9 @@ describe("Panel Agent routes", () => {
     ).toEqual(["read_terminal_context", "run_terminal_command"]);
     expect(request.messages[1].content).toContain("nginx failed");
     expect(request.messages[1].content).not.toContain("secret-token");
+    expect(request.messages[2].content).toContain("Attachment: ops.log");
+    expect(request.messages[2].content).toContain("nginx error");
+    expect(request.messages[2].content).not.toContain("leaked");
     expect(request.messages[0].content).toContain("tmux send-keys");
   });
 

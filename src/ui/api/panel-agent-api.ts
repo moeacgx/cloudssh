@@ -19,6 +19,18 @@ export type PanelAgentModel = {
   ownedBy?: string;
 };
 
+export type PanelAgentReasoningEffort = "auto" | "low" | "medium" | "high";
+
+export type PanelAgentChatAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "text" | "file";
+  dataUrl?: string;
+  text?: string;
+};
+
 export type PanelAgentSettings = {
   enabled: boolean;
   provider: "openai-compatible";
@@ -78,6 +90,7 @@ export type PanelAgentChatMessage = {
   toolCallId?: string;
   name?: string;
   toolCalls?: PanelAgentToolCall[];
+  attachments?: PanelAgentChatAttachment[];
 };
 
 export type PanelAgentChatInput = {
@@ -85,6 +98,7 @@ export type PanelAgentChatInput = {
   skillIds?: string[];
   targets: PanelAgentTargetInput[];
   model?: string;
+  reasoningEffort?: PanelAgentReasoningEffort;
 };
 
 export type PanelAgentChatResponse = {
