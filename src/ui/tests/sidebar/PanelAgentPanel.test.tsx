@@ -414,6 +414,88 @@ describe("PanelAgentPanel", () => {
     );
   });
 
+  it("opens compact settings to choose data targets and skills", async () => {
+    const webTab = terminalTab();
+    const dbTab = terminalTab({
+      id: "tab-2",
+      instanceId: "instance-2",
+      label: "db-1",
+      host: {
+        ...webTab.host!,
+        id: "43",
+        name: "db-1",
+        ip: "192.0.2.11",
+      },
+      terminalRef: {
+        current: {
+          isConnected: () => true,
+          sendInput: vi.fn(),
+          getRecentOutput: () => "postgres ok",
+          getSessionContext: () => ({
+            sessionId: "session-2",
+            hostId: "43",
+            connected: true,
+          }),
+        },
+      },
+    });
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: {
+        role: "assistant",
+        content: "settings applied",
+        toolCalls: [],
+      },
+    });
+    const { rerender } = render(
+      <PanelAgentPanel
+        terminalTabs={[webTab, dbTab]}
+        activeTabId="tab-1"
+        embedded
+        compact
+        conversationAction={null}
+      />,
+    );
+
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    rerender(
+      <PanelAgentPanel
+        terminalTabs={[webTab, dbTab]}
+        activeTabId="tab-1"
+        embedded
+        compact
+        conversationAction={{ id: 1, type: "settings" }}
+      />,
+    );
+
+    expect(
+      await screen.findByTestId("panel-agent-context-settings"),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "panelAgent.contextData: db-1" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "安全运维边界" }));
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "check selected context" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "panelAgent.send" }));
+
+    await screen.findByText("settings applied");
+    expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillIds: [],
+        targets: [
+          expect.objectContaining({ targetId: "tab-1" }),
+          expect.objectContaining({
+            targetId: "tab-2",
+            recentOutput: "postgres ok",
+          }),
+        ],
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
   it("keeps the composer fixed while only the message list scrolls", async () => {
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 

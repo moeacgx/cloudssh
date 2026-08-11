@@ -18,13 +18,16 @@ vi.mock("@/sidebar/PanelAgentPanel", () => ({
   PanelAgentPanel: ({
     embedded,
     compact,
+    conversationAction,
   }: {
     embedded?: boolean;
     compact?: boolean;
+    conversationAction?: { type: string } | null;
   }) => (
     <div data-testid="panel-agent-panel">
       {embedded ? "embedded agent panel" : "standalone agent panel"}
       {compact ? " compact" : ""}
+      {conversationAction?.type ? ` action:${conversationAction.type}` : ""}
       <input aria-label="mock Agent draft" />
     </div>
   ),
@@ -81,6 +84,12 @@ describe("WorkspaceUtilityRail", () => {
     );
     expect(screen.getByTestId("panel-agent-panel").textContent).toContain(
       "embedded agent panel compact",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "panelAgent.settings" }),
+    );
+    expect(screen.getByTestId("panel-agent-panel").textContent).toContain(
+      "action:settings",
     );
     const draft = screen.getByLabelText("mock Agent draft");
     fireEvent.change(draft, { target: { value: "keep this context" } });

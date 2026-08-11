@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Settings2,
   Server,
   Square,
   ShieldCheck,
@@ -79,7 +80,7 @@ const PANEL_AGENT_THINKING_MODES: PanelAgentReasoningEffort[] = [
 
 export type PanelAgentConversationAction = {
   id: number;
-  type: "clear" | "new" | "history";
+  type: "clear" | "new" | "history" | "settings";
 };
 
 function readStoredSelectedModel(): string {
@@ -365,6 +366,7 @@ export function PanelAgentPanel({
     [],
   );
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [conversationHistory, setConversationHistory] = useState(
     readStoredConversationHistory,
   );
@@ -383,6 +385,7 @@ export function PanelAgentPanel({
     clear: () => undefined,
     new: () => undefined,
     history: () => undefined,
+    settings: () => undefined,
   });
 
   useEffect(() => {
@@ -765,6 +768,7 @@ export function PanelAgentPanel({
     setDraft("");
     setAttachments([]);
     setHistoryOpen(false);
+    setSettingsOpen(false);
     setMessages(nextMessages);
     await startConversation(nextMessages, userMessage.id);
   }
@@ -811,6 +815,7 @@ export function PanelAgentPanel({
     setMessages([]);
     setAttachments([]);
     setHistoryOpen(false);
+    setSettingsOpen(false);
   }
 
   function newConversation() {
@@ -819,10 +824,17 @@ export function PanelAgentPanel({
     setMessages([]);
     setAttachments([]);
     setHistoryOpen(false);
+    setSettingsOpen(false);
   }
 
   function toggleHistory() {
+    setSettingsOpen(false);
     setHistoryOpen((current) => !current);
+  }
+
+  function toggleSettingsPanel() {
+    setHistoryOpen(false);
+    setSettingsOpen((current) => !current);
   }
 
   function restoreConversation(id: string) {
@@ -832,12 +844,14 @@ export function PanelAgentPanel({
     setMessages(toUiMessages(stored.messages));
     setAttachments([]);
     setHistoryOpen(false);
+    setSettingsOpen(false);
   }
 
   conversationActionHandlersRef.current = {
     clear: clearConversation,
     new: newConversation,
     history: toggleHistory,
+    settings: toggleSettingsPanel,
   };
 
   useEffect(() => {
@@ -1086,6 +1100,107 @@ export function PanelAgentPanel({
     );
   }
 
+  function renderContextSettingsPanel() {
+    return (
+      <div
+        data-testid="panel-agent-context-settings"
+        className="space-y-3 rounded-2xl border border-accent-brand/20 bg-background/70 p-3 text-xs shadow-sm backdrop-blur-xl"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 font-semibold text-foreground">
+            <Settings2 className="size-3.5 text-accent-brand" />
+            <span>{t("panelAgent.contextSettings")}</span>
+          </div>
+          <button
+            type="button"
+            className="rounded-full px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={() => setSettingsOpen(false)}
+          >
+            {t("common.close")}
+          </button>
+        </div>
+        <div className="space-y-2 rounded-xl border border-border/50 bg-background/45 p-2">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <Server className="size-3" />
+            {t("panelAgent.contextData")}
+          </div>
+          <p className="text-[10px] leading-4 text-muted-foreground">
+            {t("panelAgent.contextDataHint")}
+          </p>
+          {terminalTabs.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              {t("panelAgent.noTerminals")}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {terminalTabs.map((tab) => {
+                const connected =
+                  tab.terminalRef?.current?.isConnected?.() ?? false;
+                const disabled =
+                  !settings?.multiServerEnabled &&
+                  selectedCount > 0 &&
+                  !selectedTabIds.has(tab.id);
+                const label = tab.host?.name ?? tab.label;
+                return (
+                  <label
+                    key={tab.id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-background/55 p-2 text-[11px] shadow-sm ${disabled ? "opacity-50" : "hover:border-accent-brand/30"}`}
+                  >
+                    <Checkbox
+                      checked={selectedTabIds.has(tab.id)}
+                      disabled={disabled}
+                      onCheckedChange={() => toggleTab(tab.id)}
+                      aria-label={`${t("panelAgent.contextData")}: ${label}`}
+                    />
+                    <Terminal className="size-3.5 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{label}</span>
+                    <span
+                      className={
+                        connected ? "text-emerald-600" : "text-muted-foreground"
+                      }
+                    >
+                      {connected
+                        ? t("panelAgent.connected")
+                        : t("panelAgent.notConnected")}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="space-y-2 rounded-xl border border-border/50 bg-background/45 p-2">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <ShieldCheck className="size-3" />
+            {t("panelAgent.skills")}
+          </div>
+          <p className="text-[10px] leading-4 text-muted-foreground">
+            {t("panelAgent.skillHint")}
+          </p>
+          {activeSkills.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              {t("panelAgent.noSkills")}
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {activeSkills.map((skill) => (
+                <button
+                  key={skill.id}
+                  type="button"
+                  onClick={() => toggleSkill(skill.id)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] shadow-sm transition-colors ${selectedSkillIds.has(skill.id) ? "border-accent-brand bg-accent-brand/10 text-accent-brand" : "border-border/70 bg-background/55 text-muted-foreground hover:border-accent-brand/30 hover:text-foreground"}`}
+                  aria-pressed={selectedSkillIds.has(skill.id)}
+                >
+                  {skill.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`flex min-h-0 flex-col overflow-hidden ${embedded ? `flex-1 ${compact ? "bg-transparent" : "bg-gradient-to-b from-background via-background to-muted/20"}` : "h-full bg-sidebar"}`}
@@ -1254,6 +1369,17 @@ export function PanelAgentPanel({
                   variant="ghost"
                   size="xs"
                   className="rounded-full"
+                  onClick={toggleSettingsPanel}
+                  aria-label={t("panelAgent.settings")}
+                >
+                  <Settings2 className="size-3" />
+                  {t("panelAgent.settings")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="rounded-full"
                   onClick={toggleHistory}
                 >
                   <History className="size-3" />
@@ -1289,6 +1415,7 @@ export function PanelAgentPanel({
             className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] ${compact ? "rounded-xl" : "rounded-2xl border border-border/40 bg-background/35 p-2"}`}
             style={{ overflowY: "auto", overscrollBehavior: "contain" }}
           >
+            {settingsOpen && renderContextSettingsPanel()}
             {historyOpen && (
               <div
                 data-testid="panel-agent-history"

@@ -17,6 +17,7 @@ import {
   History,
   MessageSquarePlus,
   Minus,
+  Settings2,
   Trash2,
   X,
 } from "lucide-react";
@@ -507,6 +508,16 @@ export function WorkspaceUtilityRail({
                   </p>
                 </div>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-full bg-background/15"
+                onClick={() => runMobileConversationAction("settings")}
+                aria-label={t("panelAgent.settings")}
+                title={t("panelAgent.settings")}
+              >
+                <Settings2 className="size-3.5" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
