@@ -207,6 +207,7 @@ fi
 if [ "$1" = "compose" ]; then
   case " $* " in
     *" port cloudssh 8080 "*) echo "127.0.0.1:18080" ;;
+    *" ps -a -q cloudssh "*) echo "mock-container" ;;
     *" ps -q cloudssh "*) echo "mock-container" ;;
     *" stop --timeout 60 cloudssh guacd "*) : ;;
     *" up -d guacd "*) : ;;
@@ -246,6 +247,9 @@ exit 1
       expect(result.status, result.stderr || result.stdout).toBe(0);
       expect(result.stdout).toContain(`CloudSSH 已更新至 ${version}`);
       const log = await readFile(logPath, "utf8");
+      expect(log).toContain(
+        "compose --env-file docker/.env -f docker/docker-compose.cloudssh.yml ps -a -q cloudssh",
+      );
       expect(
         log.indexOf("stop --timeout 60 cloudssh guacd"),
       ).toBeGreaterThanOrEqual(0);

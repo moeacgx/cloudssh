@@ -25,6 +25,7 @@ vi.mock("@/sidebar/PanelAgentPanel", () => ({
     <div data-testid="panel-agent-panel">
       {embedded ? "embedded agent panel" : "standalone agent panel"}
       {compact ? " compact" : ""}
+      <input aria-label="mock Agent draft" />
     </div>
   ),
 }));
@@ -78,6 +79,8 @@ describe("WorkspaceUtilityRail", () => {
     expect(screen.getByTestId("panel-agent-panel").textContent).toContain(
       "embedded agent panel compact",
     );
+    const draft = screen.getByLabelText("mock Agent draft");
+    fireEvent.change(draft, { target: { value: "keep this context" } });
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -91,6 +94,14 @@ describe("WorkspaceUtilityRail", () => {
     expect(
       screen.getByRole("button", { name: "workspace.utility.agentFloat" }),
     ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.agentFloat" }),
+    );
+    expect(screen.getByLabelText("mock Agent draft")).toHaveProperty(
+      "value",
+      "keep this context",
+    );
   });
 
   it("hides the mobile Agent to a tucked edge handle", () => {

@@ -150,6 +150,7 @@ export function WorkspaceUtilityRail({
   const [view, setView] = useState<UtilityView>(null);
   const [mobileAgentMode, setMobileAgentMode] =
     useState<MobileAgentMode>("bubble");
+  const [mobileAgentMounted, setMobileAgentMounted] = useState(false);
   const [mobileAgentPosition, setMobileAgentPosition] =
     useState<MobileAgentPosition>(storedMobileAgentPosition);
   const [mobileViewportHeight, setMobileViewportHeight] =
@@ -256,6 +257,7 @@ export function WorkspaceUtilityRail({
       event.stopPropagation();
       return;
     }
+    setMobileAgentMounted(true);
     setMobileAgentMode("quick");
   }
 
@@ -461,20 +463,12 @@ export function WorkspaceUtilityRail({
       </aside>
 
       <div className="md:hidden">
-        {mobileAgentMode === "hidden" ? (
-          <button
-            type="button"
-            className={`fixed z-50 h-14 w-2 border border-accent-brand/40 bg-accent-brand/60 shadow-lg shadow-black/20 backdrop-blur-xl ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0" : "rounded-r-full border-l-0"}`}
-            style={mobileAgentDockStyle}
-            onClick={() => setMobileAgentMode("bubble")}
-            aria-label={t("workspace.utility.agentFloatRestore")}
-            title={t("workspace.utility.agentFloatRestore")}
-          />
-        ) : mobileAgentMode === "quick" ? (
+        {mobileAgentMounted && (
           <div
             role="dialog"
             aria-label={t("workspace.utility.agentChat")}
             className="fixed z-50 flex w-[min(calc(100vw-1.5rem),26rem)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/80 shadow-2xl shadow-black/25 backdrop-blur-xl"
+            hidden={mobileAgentMode !== "quick"}
             style={mobileAgentPanelStyle}
           >
             <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 bg-card/60 px-2.5 backdrop-blur-xl">
@@ -524,7 +518,18 @@ export function WorkspaceUtilityRail({
               compact
             />
           </div>
-        ) : (
+        )}
+
+        {mobileAgentMode === "hidden" ? (
+          <button
+            type="button"
+            className={`fixed z-50 h-14 w-2 border border-accent-brand/40 bg-accent-brand/60 shadow-lg shadow-black/20 backdrop-blur-xl ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0" : "rounded-r-full border-l-0"}`}
+            style={mobileAgentDockStyle}
+            onClick={() => setMobileAgentMode("bubble")}
+            aria-label={t("workspace.utility.agentFloatRestore")}
+            title={t("workspace.utility.agentFloatRestore")}
+          />
+        ) : mobileAgentMode === "quick" ? null : (
           <button
             type="button"
             className={`fixed z-50 flex h-11 touch-none items-center gap-2 border border-accent-brand/30 bg-background/75 text-accent-brand shadow-xl shadow-black/20 backdrop-blur-xl active:scale-95 ${mobileAgentPosition.side === "right" ? "rounded-l-full border-r-0 py-2 pl-2 pr-3" : "rounded-r-full border-l-0 py-2 pl-3 pr-2"}`}

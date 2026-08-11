@@ -263,7 +263,7 @@ gzip -dc "$TEMP_DIR/$ARCHIVE" | docker load >/dev/null
 [ "$(docker image inspect "$TARGET_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$VERSION" ] ||
   fail "离线镜像版本标签不匹配"
 
-CONTAINER_ID="$(compose ps -q cloudssh)"
+CONTAINER_ID="$(compose ps -a -q cloudssh)"
 [ -n "$CONTAINER_ID" ] || fail "找不到正在部署的 cloudssh 容器"
 PREVIOUS_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$CONTAINER_ID")"
 [ -n "$PREVIOUS_IMAGE" ] || fail "无法识别当前 CloudSSH 镜像"
