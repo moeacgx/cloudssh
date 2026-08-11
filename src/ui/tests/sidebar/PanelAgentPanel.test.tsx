@@ -228,6 +228,42 @@ describe("PanelAgentPanel", () => {
     );
   });
 
+  it("exposes desktop cockpit actions for history and new chats", async () => {
+    panelAgentApi.sendPanelAgentChat.mockResolvedValue({
+      message: { role: "assistant", content: "archived answer", toolCalls: [] },
+    });
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+
+    await screen.findByText("panelAgent.noTerminals");
+    expect(
+      screen.getByTestId("panel-agent-message-list").parentElement?.className,
+    ).toContain("rounded-3xl");
+    expect(screen.getByTestId("panel-agent-composer").className).toContain(
+      "rounded-2xl",
+    );
+    expect(
+      screen.getByRole("button", { name: "panelAgent.history" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "panelAgent.newChat" }),
+    ).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "desktop ops" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("archived answer");
+    fireEvent.click(screen.getByRole("button", { name: "panelAgent.newChat" }));
+    expect(screen.queryByText("desktop ops")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "panelAgent.history" }));
+    expect(await screen.findByTestId("panel-agent-history")).toBeTruthy();
+    expect(screen.getByText("desktop ops")).toBeTruthy();
+  });
+
   it("restores the selected model from localStorage", async () => {
     localStorage.setItem("panelAgentSelectedModel", "remembered-model");
     panelAgentApi.getPanelAgentSettings.mockResolvedValueOnce({

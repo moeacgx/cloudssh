@@ -12,6 +12,8 @@ import {
   Bot,
   BrainCircuit,
   ChevronDown,
+  History,
+  MessageSquarePlus,
   Paperclip,
   Plus,
   RefreshCw,
@@ -920,6 +922,12 @@ export function PanelAgentPanel({
 
   const selectedCount = selectedTabIds.size;
   const activeSkills = settings?.skills.filter((skill) => skill.enabled) ?? [];
+  const selectedTerminalTabs = terminalTabs.filter((tab) =>
+    selectedTabIds.has(tab.id),
+  );
+  const selectedTargetSummary = selectedTerminalTabs
+    .map((tab) => tab.host?.name ?? tab.label)
+    .join(" · ");
   const currentModelLabel =
     selectedModel.trim() || settings?.model || t("panelAgent.model");
   const selectableModels =
@@ -961,7 +969,7 @@ export function PanelAgentPanel({
             className={
               isCompact
                 ? "min-w-0 flex-1 justify-between rounded-full bg-background/20 px-2 py-1.5 text-[11px] backdrop-blur hover:bg-background/35"
-                : "min-w-0 max-w-56 justify-between border border-border/70 bg-background"
+                : "min-w-0 max-w-56 justify-between rounded-full border border-border/60 bg-background/70 px-3 shadow-sm backdrop-blur hover:bg-background"
             }
             aria-label={`${t("panelAgent.model")}: ${currentModelLabel}`}
           >
@@ -1019,7 +1027,7 @@ export function PanelAgentPanel({
             className={
               isCompact
                 ? "flex shrink-0 items-center gap-1 rounded-full bg-accent-brand/10 px-2 py-1.5 text-[11px] text-accent-brand hover:bg-accent-brand/15"
-                : "border border-border/70 bg-background text-muted-foreground"
+                : "rounded-full border border-accent-brand/20 bg-accent-brand/10 px-3 text-accent-brand shadow-sm backdrop-blur hover:bg-accent-brand/15"
             }
             aria-label={`${t("panelAgent.thinking.label")}: ${label}`}
           >
@@ -1050,7 +1058,7 @@ export function PanelAgentPanel({
 
   return (
     <div
-      className={`flex min-h-0 flex-col overflow-hidden ${embedded ? `flex-1 ${compact ? "bg-transparent" : "bg-background"}` : "h-full bg-sidebar"}`}
+      className={`flex min-h-0 flex-col overflow-hidden ${embedded ? `flex-1 ${compact ? "bg-transparent" : "bg-gradient-to-b from-background via-background to-muted/20"}` : "h-full bg-sidebar"}`}
     >
       {!embedded && (
         <div className="shrink-0 border-b border-border p-3">
@@ -1070,11 +1078,11 @@ export function PanelAgentPanel({
         </div>
       )}
       <div
-        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${compact ? "gap-2 px-3 pb-3 pt-2" : "gap-3 p-3"}`}
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${compact ? "gap-2 px-3 pb-3 pt-2" : "gap-3 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.08),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_30%)] p-3"}`}
       >
         <section
           hidden={compact}
-          className="shrink-0 border border-border bg-card p-3"
+          className="shrink-0 rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur"
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1108,7 +1116,7 @@ export function PanelAgentPanel({
                 return (
                   <label
                     key={tab.id}
-                    className={`flex cursor-pointer items-center gap-2 border border-border bg-background p-2 text-xs ${disabled ? "opacity-50" : ""}`}
+                    className={`flex cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-background/70 p-2 text-xs shadow-sm transition-colors hover:border-accent-brand/30 hover:bg-background ${disabled ? "opacity-50" : ""}`}
                   >
                     <Checkbox
                       checked={selectedTabIds.has(tab.id)}
@@ -1137,7 +1145,7 @@ export function PanelAgentPanel({
 
         <section
           hidden={compact}
-          className="shrink-0 border border-border bg-card p-3"
+          className="shrink-0 rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur"
         >
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             <ShieldCheck className="size-3.5" />
@@ -1154,7 +1162,7 @@ export function PanelAgentPanel({
                   key={skill.id}
                   type="button"
                   onClick={() => toggleSkill(skill.id)}
-                  className={`border px-2 py-1 text-[11px] ${selectedSkillIds.has(skill.id) ? "border-accent-brand bg-accent-brand/10 text-accent-brand" : "border-border text-muted-foreground hover:text-foreground"}`}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] shadow-sm transition-colors ${selectedSkillIds.has(skill.id) ? "border-accent-brand bg-accent-brand/10 text-accent-brand" : "border-border/70 bg-background/55 text-muted-foreground hover:border-accent-brand/30 hover:text-foreground"}`}
                 >
                   {skill.name}
                 </button>
@@ -1164,31 +1172,90 @@ export function PanelAgentPanel({
         </section>
 
         <section
-          className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-0" : "border border-border bg-card p-3"}`}
+          className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-0" : "overflow-hidden rounded-3xl border border-border/60 bg-card/75 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl"}`}
+          style={
+            !compact
+              ? {
+                  backgroundColor: "rgba(255, 255, 255, 0.72)",
+                  backdropFilter: "blur(24px) saturate(150%)",
+                  WebkitBackdropFilter: "blur(24px) saturate(150%)",
+                }
+              : undefined
+          }
         >
           {!compact && (
-            <div className="flex shrink-0 items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
-                <BrainCircuit className="size-3.5 text-muted-foreground" />
-                <span className="uppercase tracking-widest text-muted-foreground">
-                  {t("panelAgent.chat")}
-                </span>
+            <div
+              className="flex shrink-0 items-start justify-between gap-3 rounded-2xl border border-border/60 bg-background/65 p-2.5 shadow-sm backdrop-blur"
+              style={{
+                backgroundColor: "rgba(255, 255, 255, 0.62)",
+                backdropFilter: "blur(18px) saturate(145%)",
+                WebkitBackdropFilter: "blur(18px) saturate(145%)",
+              }}
+            >
+              <div className="flex min-w-0 items-start gap-2.5">
+                <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl border border-accent-brand/25 bg-accent-brand/10 text-accent-brand shadow-inner">
+                  <BrainCircuit className="size-4" />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <span className="uppercase tracking-widest text-muted-foreground">
+                      {t("panelAgent.chat")}
+                    </span>
+                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+                      {t("panelAgent.agent")}
+                    </span>
+                  </div>
+                  <div className="flex max-w-full flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                    <span className="rounded-full bg-muted/55 px-2 py-0.5">
+                      {selectedCount} {t("panelAgent.targets")}
+                    </span>
+                    <span className="max-w-40 truncate rounded-full bg-muted/55 px-2 py-0.5">
+                      {selectedTargetSummary || t("panelAgent.targets")}
+                    </span>
+                    <span className="rounded-full bg-muted/55 px-2 py-0.5">
+                      {activeSkills.length} {t("panelAgent.skills")}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={clearConversation}
-                disabled={messages.length === 0 && !working}
-              >
-                <Trash2 className="size-3" />
-                {t("panelAgent.clear")}
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="rounded-full"
+                  onClick={toggleHistory}
+                >
+                  <History className="size-3" />
+                  {t("panelAgent.history")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="rounded-full"
+                  onClick={newConversation}
+                >
+                  <MessageSquarePlus className="size-3" />
+                  {t("panelAgent.newChat")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="rounded-full"
+                  onClick={clearConversation}
+                  disabled={messages.length === 0 && !working}
+                >
+                  <Trash2 className="size-3" />
+                  {t("panelAgent.clear")}
+                </Button>
+              </div>
             </div>
           )}
           <div
             data-testid="panel-agent-message-list"
-            className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] ${compact ? "rounded-xl" : ""}`}
+            className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] ${compact ? "rounded-xl" : "rounded-2xl border border-border/40 bg-background/35 p-2"}`}
           >
             {historyOpen && (
               <div
@@ -1230,8 +1297,24 @@ export function PanelAgentPanel({
               compact ? (
                 <div className="min-h-4" aria-hidden="true" />
               ) : (
-                <div className="border border-dashed border-border/70 p-4 text-center text-xs leading-5 text-muted-foreground">
-                  {t("panelAgent.chatEmpty")}
+                <div className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-gradient-to-br from-background/80 to-muted/35 p-5 text-center text-xs leading-5 text-muted-foreground">
+                  <div className="mb-3 flex size-10 items-center justify-center rounded-2xl border border-accent-brand/20 bg-accent-brand/10 text-accent-brand shadow-inner">
+                    <Bot className="size-5" />
+                  </div>
+                  <p className="font-semibold text-foreground">
+                    {t("panelAgent.chatEmpty")}
+                  </p>
+                  <p className="mt-1 max-w-72">
+                    {t("panelAgent.chatPlaceholder")}
+                  </p>
+                  <div className="mt-3 flex flex-wrap justify-center gap-1.5 text-[10px]">
+                    <span className="rounded-full bg-background/70 px-2 py-1">
+                      {t("panelAgent.model")}
+                    </span>
+                    <span className="rounded-full bg-background/70 px-2 py-1">
+                      {t("panelAgent.thinking.label")}
+                    </span>
+                  </div>
                 </div>
               )
             ) : (
@@ -1275,7 +1358,7 @@ export function PanelAgentPanel({
             onKeyDown={handleDraftKeyDown}
             placeholder={t("panelAgent.chatPlaceholder")}
             rows={compact ? 3 : 4}
-            className={`shrink-0 resize-none ${compact ? "min-h-20 rounded-xl border-border/45 bg-background/25 shadow-inner backdrop-blur placeholder:text-muted-foreground" : ""}`}
+            className={`shrink-0 resize-none ${compact ? "min-h-20 rounded-xl border-border/45 bg-background/25 shadow-inner backdrop-blur placeholder:text-muted-foreground" : "min-h-24 rounded-2xl border-border/60 bg-background/70 shadow-inner placeholder:text-muted-foreground"}`}
             style={
               compact
                 ? {
@@ -1283,7 +1366,11 @@ export function PanelAgentPanel({
                     backdropFilter: "blur(18px) saturate(150%)",
                     WebkitBackdropFilter: "blur(18px) saturate(150%)",
                   }
-                : undefined
+                : {
+                    backgroundColor: "rgba(255, 255, 255, 0.7)",
+                    backdropFilter: "blur(14px) saturate(140%)",
+                    WebkitBackdropFilter: "blur(14px) saturate(140%)",
+                  }
             }
           />
           <input
@@ -1300,7 +1387,7 @@ export function PanelAgentPanel({
             className={
               compact
                 ? "flex shrink-0 items-center gap-2 rounded-2xl border border-border/45 bg-background/25 p-2 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
-                : "flex shrink-0 items-center gap-2"
+                : "flex shrink-0 items-center gap-2 rounded-2xl border border-border/60 bg-background/70 p-2 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
             }
             style={
               compact
@@ -1309,7 +1396,11 @@ export function PanelAgentPanel({
                     backdropFilter: "blur(22px) saturate(150%)",
                     WebkitBackdropFilter: "blur(22px) saturate(150%)",
                   }
-                : undefined
+                : {
+                    backgroundColor: "rgba(255, 255, 255, 0.58)",
+                    backdropFilter: "blur(18px) saturate(145%)",
+                    WebkitBackdropFilter: "blur(18px) saturate(145%)",
+                  }
             }
           >
             <Button
@@ -1319,7 +1410,7 @@ export function PanelAgentPanel({
               className={
                 compact
                   ? "size-8 shrink-0 rounded-full bg-background/20"
-                  : "size-8 shrink-0"
+                  : "size-9 shrink-0 rounded-full bg-background/60"
               }
               onClick={() => fileInputRef.current?.click()}
               aria-label={t("panelAgent.attach")}
@@ -1334,7 +1425,7 @@ export function PanelAgentPanel({
               className={
                 compact
                   ? "size-8 shrink-0 rounded-full bg-zinc-950 text-white shadow-sm hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
-                  : "flex-1"
+                  : "h-9 flex-1 rounded-full bg-zinc-950 text-white shadow-sm hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
               }
               onClick={handleSend}
               disabled={chatDisabled}
