@@ -66,6 +66,7 @@ const PANEL_AGENT_MODEL_LIST_STORAGE_KEY = "panelAgentModelList";
 const PANEL_AGENT_THINKING_MODE_STORAGE_KEY = "panelAgentThinkingMode";
 const PANEL_AGENT_CONVERSATION_HISTORY_STORAGE_KEY =
   "panelAgentConversationHistory";
+const PANEL_AGENT_LIVE_CONVERSATION_STORAGE_KEY = "panelAgentLiveConversation";
 const MAX_CHAT_ATTACHMENTS = 6;
 const MAX_TEXT_ATTACHMENT_CHARS = 80_000;
 const MAX_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
@@ -222,6 +223,56 @@ function writeStoredConversationHistory(
     JSON.stringify(conversations.slice(0, MAX_STORED_CONVERSATIONS)),
   );
 }
+function readStoredLiveConversation(): PanelAgentUiMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(
+      PANEL_AGENT_LIVE_CONVERSATION_STORAGE_KEY,
+    );
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    const rawMessages = Array.isArray(parsed)
+      ? parsed
+      : parsed &&
+          typeof parsed === "object" &&
+          Array.isArray((parsed as { messages?: unknown }).messages)
+        ? (parsed as { messages: unknown[] }).messages
+        : [];
+    return toUiMessages(
+      rawMessages.filter((message): message is PanelAgentChatMessage => {
+        if (!message || typeof message !== "object") return false;
+        const candidate = message as Partial<PanelAgentChatMessage>;
+        return (
+          (candidate.role === "user" ||
+            candidate.role === "assistant" ||
+            candidate.role === "tool") &&
+          typeof candidate.content === "string"
+        );
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredLiveConversation(messages: PanelAgentUiMessage[]) {
+  if (typeof window === "undefined") return;
+  try {
+    if (messages.length === 0) {
+      window.localStorage.removeItem(PANEL_AGENT_LIVE_CONVERSATION_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      PANEL_AGENT_LIVE_CONVERSATION_STORAGE_KEY,
+      JSON.stringify({
+        updatedAt: Date.now(),
+        messages: toApiMessages(messages),
+      }),
+    );
+  } catch {
+    // Ignore storage failures; the mounted component state remains authoritative.
+  }
+}
 
 function conversationTitle(messages: PanelAgentUiMessage[]) {
   const userMessage = messages.find((message) => message.role === "user");
@@ -353,10 +404,11 @@ export function PanelAgentPanel({
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<PanelAgentSettings | null>(null);
-  const [settingsLoading, setSettingsLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [selectedTabIds, setSelectedTabIds] = useState<Set<string>>(new Set());
-  const [messages, setMessages] = useState<PanelAgentUiMessage[]>([]);
+  const [messages, setMessages] = useState<PanelAgentUiMessage[]>(
+    readStoredLiveConversation,
+  );
   const [working, setWorking] = useState(false);
   const [selectedModel, setSelectedModel] = useState(readStoredSelectedModel);
   const [models, setModels] = useState(readStoredModelList);
@@ -392,6 +444,10 @@ export function PanelAgentPanel({
     tRef.current = t;
   }, [t]);
 
+  useEffect(() => {
+    writeStoredLiveConversation(messages);
+  }, [messages]);
+
   const activeTerminalTab = useMemo(
     () => terminalTabs.find((tab) => tab.id === activeTabId) ?? terminalTabs[0],
     [activeTabId, terminalTabs],
@@ -404,7 +460,6 @@ export function PanelAgentPanel({
   }, [activeTerminalTab, selectedTabIds.size]);
 
   const loadSettings = useCallback(async () => {
-    setSettingsLoading(true);
     try {
       const loaded = await getPanelAgentSettings();
       setSettings(loaded);
@@ -420,8 +475,6 @@ export function PanelAgentPanel({
       );
     } catch {
       toast.error(tRef.current("panelAgent.settingsLoadFailed"));
-    } finally {
-      setSettingsLoading(false);
     }
   }, []);
 
@@ -989,8 +1042,8 @@ export function PanelAgentPanel({
     settings && !adminConfigMissing && !hasSelectedModel,
   );
 
-  const chatDisabled =
-    working || adminConfigMissing || modelMissing || !settings;
+  const sendDisabled = adminConfigMissing || modelMissing || !settings;
+  const chatDisabled = working || sendDisabled;
   function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing) return;
     if (event.key !== "Enter" || event.shiftKey) return;
@@ -1226,97 +1279,6 @@ export function PanelAgentPanel({
         className={`flex min-h-0 flex-1 flex-col overflow-hidden ${compact ? "gap-2 px-3 pb-3 pt-2" : "gap-3 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.08),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_30%)] p-3"}`}
       >
         <section
-          hidden={compact}
-          className="shrink-0 rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur"
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              <Server className="size-3.5" />
-              {t("panelAgent.targets")}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={loadSettings}
-              disabled={settingsLoading}
-            >
-              <RefreshCw className="size-3" />
-              {t("common.refresh")}
-            </Button>
-          </div>
-          {terminalTabs.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {t("panelAgent.noTerminals")}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {terminalTabs.map((tab) => {
-                const connected =
-                  tab.terminalRef?.current?.isConnected?.() ?? false;
-                const disabled =
-                  !settings?.multiServerEnabled &&
-                  selectedCount > 0 &&
-                  !selectedTabIds.has(tab.id);
-                return (
-                  <label
-                    key={tab.id}
-                    className={`flex cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-background/70 p-2 text-xs shadow-sm transition-colors hover:border-accent-brand/30 hover:bg-background ${disabled ? "opacity-50" : ""}`}
-                  >
-                    <Checkbox
-                      checked={selectedTabIds.has(tab.id)}
-                      disabled={disabled}
-                      onCheckedChange={() => toggleTab(tab.id)}
-                    />
-                    <Terminal className="size-3.5 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">
-                      {tab.host?.name ?? tab.label}
-                    </span>
-                    <span
-                      className={
-                        connected ? "text-emerald-600" : "text-muted-foreground"
-                      }
-                    >
-                      {connected
-                        ? t("panelAgent.connected")
-                        : t("panelAgent.notConnected")}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section
-          hidden={compact}
-          className="shrink-0 rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur"
-        >
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            <ShieldCheck className="size-3.5" />
-            {t("panelAgent.skills")}
-          </div>
-          {activeSkills.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {t("panelAgent.noSkills")}
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {activeSkills.map((skill) => (
-                <button
-                  key={skill.id}
-                  type="button"
-                  onClick={() => toggleSkill(skill.id)}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] shadow-sm transition-colors ${selectedSkillIds.has(skill.id) ? "border-accent-brand bg-accent-brand/10 text-accent-brand" : "border-border/70 bg-background/55 text-muted-foreground hover:border-accent-brand/30 hover:text-foreground"}`}
-                >
-                  {skill.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section
           className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-0" : "overflow-hidden rounded-3xl border border-border/60 bg-card/75 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl"}`}
           style={
             !compact
@@ -1330,7 +1292,8 @@ export function PanelAgentPanel({
         >
           {!compact && (
             <div
-              className="flex shrink-0 items-start justify-between gap-3 rounded-2xl border border-border/60 bg-background/65 p-2.5 shadow-sm backdrop-blur"
+              data-testid="panel-agent-desktop-chat-header"
+              className="flex shrink-0 flex-col gap-2 rounded-2xl border border-border/60 bg-background/65 p-2.5 shadow-sm backdrop-blur"
               style={{
                 backgroundColor: "rgba(255, 255, 255, 0.62)",
                 backdropFilter: "blur(18px) saturate(145%)",
@@ -1341,9 +1304,9 @@ export function PanelAgentPanel({
                 <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl border border-accent-brand/25 bg-accent-brand/10 text-accent-brand shadow-inner">
                   <BrainCircuit className="size-4" />
                 </div>
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                    <span className="uppercase tracking-widest text-muted-foreground">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-foreground">
+                    <span className="whitespace-nowrap uppercase tracking-widest text-muted-foreground">
                       {t("panelAgent.chat")}
                     </span>
                     <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
@@ -1351,60 +1314,70 @@ export function PanelAgentPanel({
                     </span>
                   </div>
                   <div className="flex max-w-full flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-                    <span className="rounded-full bg-muted/55 px-2 py-0.5">
+                    <span className="whitespace-nowrap rounded-full bg-muted/55 px-2 py-0.5">
                       {selectedCount} {t("panelAgent.targets")}
                     </span>
-                    <span className="max-w-40 truncate rounded-full bg-muted/55 px-2 py-0.5">
+                    <span className="max-w-full truncate rounded-full bg-muted/55 px-2 py-0.5">
                       {selectedTargetSummary || t("panelAgent.targets")}
                     </span>
-                    <span className="rounded-full bg-muted/55 px-2 py-0.5">
+                    <span className="whitespace-nowrap rounded-full bg-muted/55 px-2 py-0.5">
                       {activeSkills.length} {t("panelAgent.skills")}
                     </span>
                   </div>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div
+                data-testid="panel-agent-desktop-actions"
+                className="flex flex-wrap items-center gap-1"
+              >
                 <Button
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className="rounded-full"
+                  className="min-w-0 flex-1 justify-center rounded-full px-2 sm:flex-none"
                   onClick={toggleSettingsPanel}
                   aria-label={t("panelAgent.settings")}
+                  title={t("panelAgent.settings")}
                 >
                   <Settings2 className="size-3" />
-                  {t("panelAgent.settings")}
+                  <span className="truncate">{t("panelAgent.settings")}</span>
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className="rounded-full"
+                  className="min-w-0 flex-1 justify-center rounded-full px-2 sm:flex-none"
                   onClick={toggleHistory}
+                  aria-label={t("panelAgent.history")}
+                  title={t("panelAgent.history")}
                 >
                   <History className="size-3" />
-                  {t("panelAgent.history")}
+                  <span className="truncate">{t("panelAgent.history")}</span>
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className="rounded-full"
+                  className="min-w-0 flex-1 justify-center rounded-full px-2 sm:flex-none"
                   onClick={newConversation}
+                  aria-label={t("panelAgent.newChat")}
+                  title={t("panelAgent.newChat")}
                 >
                   <MessageSquarePlus className="size-3" />
-                  {t("panelAgent.newChat")}
+                  <span className="truncate">{t("panelAgent.newChat")}</span>
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="xs"
-                  className="rounded-full"
+                  className="min-w-0 flex-1 justify-center rounded-full px-2 sm:flex-none"
                   onClick={clearConversation}
                   disabled={messages.length === 0 && !working}
+                  aria-label={t("panelAgent.clear")}
+                  title={t("panelAgent.clear")}
                 >
                   <Trash2 className="size-3" />
-                  {t("panelAgent.clear")}
+                  <span className="truncate">{t("panelAgent.clear")}</span>
                 </Button>
               </div>
             </div>
@@ -1587,23 +1560,24 @@ export function PanelAgentPanel({
                   ? "size-8 shrink-0 rounded-full bg-zinc-950 text-white shadow-sm hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
                   : "h-9 flex-1 rounded-full bg-zinc-950 text-white shadow-sm hover:bg-zinc-900 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
               }
-              onClick={handleSend}
-              disabled={chatDisabled}
-              aria-label={t("panelAgent.send")}
+              onClick={() => {
+                if (working) {
+                  stopConversation();
+                  return;
+                }
+                void handleSend();
+              }}
+              disabled={!working && sendDisabled}
+              aria-label={working ? t("panelAgent.stop") : t("panelAgent.send")}
             >
-              <Send className="size-3.5" />
-              {!compact && t("panelAgent.send")}
-            </Button>
-            {working && !compact && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={stopConversation}
-              >
+              {working ? (
                 <Square className="size-3.5" />
-                {t("panelAgent.stop")}
-              </Button>
-            )}
+              ) : (
+                <Send className="size-3.5" />
+              )}
+              {!compact &&
+                (working ? t("panelAgent.stop") : t("panelAgent.send"))}
+            </Button>
           </div>
           {adminConfigMissing && (
             <p className="shrink-0 text-[11px] leading-5 text-amber-600">

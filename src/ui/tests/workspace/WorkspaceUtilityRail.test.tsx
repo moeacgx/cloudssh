@@ -51,6 +51,31 @@ describe("WorkspaceUtilityRail", () => {
   beforeEach(() => {
     localStorage.clear();
   });
+
+  it("keeps the desktop Agent mounted after collapsing the side rail", () => {
+    renderRail();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.agentChat" }),
+    );
+    const draft = screen.getByLabelText("mock Agent draft");
+    fireEvent.change(draft, { target: { value: "desktop context" } });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.collapse" }),
+    );
+    expect(
+      screen.getByTestId("panel-agent-panel").closest("[hidden]"),
+    ).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.agentChat" }),
+    );
+    expect(screen.getByLabelText("mock Agent draft")).toHaveProperty(
+      "value",
+      "desktop context",
+    );
+  });
   it("opens the panel Agent as a compact movable mobile quick-reply window", async () => {
     renderRail();
 

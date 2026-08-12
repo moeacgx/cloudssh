@@ -131,7 +131,7 @@ describe("PanelAgentPanel", () => {
     });
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
     await waitFor(() =>
       expect(screen.getByText("panelAgent.send")).toHaveProperty(
         "disabled",
@@ -193,7 +193,7 @@ describe("PanelAgentPanel", () => {
     });
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
     fireEvent.change(
       screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
       { target: { value: "plan" } },
@@ -215,11 +215,10 @@ describe("PanelAgentPanel", () => {
 
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
-    expect(screen.getByText("panelAgent.clear")).toHaveProperty(
-      "disabled",
-      true,
-    );
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    expect(
+      screen.getByRole("button", { name: "panelAgent.clear" }),
+    ).toHaveProperty("disabled", true);
     fireEvent.change(
       screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
       { target: { value: "old question" } },
@@ -227,10 +226,18 @@ describe("PanelAgentPanel", () => {
     fireEvent.click(screen.getByText("panelAgent.send"));
 
     await screen.findByText("old answer");
-    fireEvent.click(screen.getByText("panelAgent.clear"));
+    await waitFor(() =>
+      expect(localStorage.getItem("panelAgentLiveConversation")).toContain(
+        "old question",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "panelAgent.clear" }));
 
     expect(screen.queryByText("old question")).toBeNull();
     expect(screen.queryByText("old answer")).toBeNull();
+    await waitFor(() =>
+      expect(localStorage.getItem("panelAgentLiveConversation")).toBeNull(),
+    );
     expect(screen.getByText("panelAgent.chatEmpty")).toBeTruthy();
 
     fireEvent.change(
@@ -248,6 +255,28 @@ describe("PanelAgentPanel", () => {
     );
   });
 
+  it("restores the active chat from localStorage after remounting", async () => {
+    localStorage.setItem(
+      "panelAgentLiveConversation",
+      JSON.stringify({
+        updatedAt: 1,
+        messages: [
+          { role: "user", content: "hidden sidebar context" },
+          { role: "assistant", content: "still preserved", toolCalls: [] },
+        ],
+      }),
+    );
+
+    const first = render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+    await screen.findByText("hidden sidebar context");
+    expect(screen.getByText("still preserved")).toBeTruthy();
+    first.unmount();
+
+    render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
+    await screen.findByText("hidden sidebar context");
+    expect(screen.getByText("still preserved")).toBeTruthy();
+  });
+
   it("exposes desktop cockpit actions for history and new chats", async () => {
     panelAgentApi.sendPanelAgentChat.mockResolvedValue({
       message: { role: "assistant", content: "archived answer", toolCalls: [] },
@@ -255,7 +284,10 @@ describe("PanelAgentPanel", () => {
 
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    expect(
+      screen.getByTestId("panel-agent-desktop-chat-header").className,
+    ).toContain("flex-col");
     expect(
       screen.getByTestId("panel-agent-message-list").parentElement?.className,
     ).toContain("rounded-3xl");
@@ -268,6 +300,8 @@ describe("PanelAgentPanel", () => {
     expect(
       screen.getByRole("button", { name: "panelAgent.newChat" }),
     ).toBeTruthy();
+    expect(screen.queryByText("panelAgent.noTerminals")).toBeNull();
+    expect(screen.queryByText("安全运维边界")).toBeNull();
 
     fireEvent.change(
       screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
@@ -304,7 +338,7 @@ describe("PanelAgentPanel", () => {
 
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
     expect(await screen.findByText("remembered-model")).toBeTruthy();
     expect(screen.queryByText("panelAgent.adminConfigRequired")).toBeNull();
     expect(screen.queryByText("panelAgent.modelRequired")).toBeNull();
@@ -335,16 +369,17 @@ describe("PanelAgentPanel", () => {
       apiKeyConfigured: true,
       skills: [],
     });
-    panelAgentApi.getPanelAgentModels.mockResolvedValueOnce([]);
+    panelAgentApi.getPanelAgentModels.mockResolvedValue([]);
 
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
     expect(await screen.findByText("panelAgent.modelRequired")).toBeTruthy();
     expect(screen.queryByText("panelAgent.adminConfigRequired")).toBeNull();
-    expect(screen.getByText("panelAgent.send")).toHaveProperty(
-      "disabled",
-      true,
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "panelAgent.send" }),
+      ).toHaveProperty("disabled", true),
     );
   });
 
@@ -499,7 +534,7 @@ describe("PanelAgentPanel", () => {
   it("keeps the composer fixed while only the message list scrolls", async () => {
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
 
     const messageList = screen.getByTestId("panel-agent-message-list");
     const composer = screen.getByTestId("panel-agent-composer");
@@ -520,7 +555,7 @@ describe("PanelAgentPanel", () => {
 
     render(<PanelAgentPanel terminalTabs={[]} activeTabId="" />);
 
-    await screen.findByText("panelAgent.noTerminals");
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
     const scrollMetrics = mockScrollMetrics(
       screen.getByTestId("panel-agent-message-list"),
     );

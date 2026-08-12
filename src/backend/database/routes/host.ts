@@ -60,6 +60,7 @@ import {
   ProjectHostCreateTargetNotFoundError,
   ProjectHostLinkNotFoundError,
 } from "../repositories/host-repository.js";
+import type { HostUpdate } from "../repositories/host-repository.js";
 import {
   ControlPlaneManagementError,
   ManagementRepository,
@@ -85,6 +86,26 @@ interface ProjectHostUpdateContext {
 }
 
 class InvalidProjectHostUpdateContextError extends Error {}
+function hasOwnHostField(
+  hostData: Record<string, unknown>,
+  field: string,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(hostData, field);
+}
+
+function buildProjectEditableHostUpdate(
+  hostData: Record<string, unknown>,
+  sshDataObj: Record<string, unknown>,
+): HostUpdate {
+  const update: HostUpdate = {};
+  if (hasOwnHostField(hostData, "enableDocker")) {
+    update.enableDocker = Boolean(sshDataObj.enableDocker);
+  }
+  if (hasOwnHostField(hostData, "dockerConfig")) {
+    update.dockerConfig = sshDataObj.dockerConfig as string | null;
+  }
+  return update;
+}
 
 function parseProjectAlias(value: unknown): string | null {
   if (value === undefined || value === null || value === "") return null;
@@ -1609,79 +1630,91 @@ router.put(
       }
 
       const hostRepository = createCurrentHostRepository();
+      let updatedHostRecord: Record<string, unknown> | null = null;
       if (personalProjectMetadata) {
-        await hostRepository.updateEncryptedForUserWithPersonalProjectMetadata(
-          ownerId,
-          userId,
-          Number(hostId),
-          sshDataObj,
-          personalProjectMetadata,
-        );
+        updatedHostRecord =
+          await hostRepository.updateEncryptedForUserWithPersonalProjectMetadata(
+            ownerId,
+            userId,
+            Number(hostId),
+            sshDataObj,
+            personalProjectMetadata,
+          );
       } else if (projectHostUpdateContext && !accessInfo.isOwner) {
-        new ManagementRepository(
-          createCurrentRepositoryContext(),
-        ).updateProjectHostMetadata(
-          projectHostUpdateContext.projectId,
-          userId,
-          await permissionManager.isAdmin(userId),
-          projectHostUpdateContext.projectHostId,
-          {
-            alias: projectHostUpdateContext.alias,
-            folder: projectHostUpdateContext.folder,
-            tags: projectHostUpdateContext.tags,
-          },
-        );
+        updatedHostRecord =
+          await hostRepository.updateNonSensitiveForUserWithProjectMetadata(
+            ownerId,
+            Number(hostId),
+            buildProjectEditableHostUpdate(hostData, sshDataObj),
+            projectHostUpdateContext,
+          );
       } else if (projectHostUpdateContext) {
-        await hostRepository.updateEncryptedForUserWithProjectMetadata(
-          ownerId,
-          Number(hostId),
-          sshDataObj,
-          projectHostUpdateContext,
-        );
+        updatedHostRecord =
+          await hostRepository.updateEncryptedForUserWithProjectMetadata(
+            ownerId,
+            Number(hostId),
+            sshDataObj,
+            projectHostUpdateContext,
+          );
       } else {
-        await hostRepository.updateEncryptedForUser(
+        updatedHostRecord = await hostRepository.updateEncryptedForUser(
           ownerId,
           Number(hostId),
           sshDataObj,
         );
       }
 
-      // Keep every recipient's re-encrypted secret snapshots in sync with
-      // the updated host record.
-      try {
-        const { SharedHostSecretsManager } =
-          await import("../../utils/shared-host-secrets-manager.js");
-        await SharedHostSecretsManager.getInstance().resyncHost(Number(hostId));
-      } catch (resyncError) {
-        sshLogger.warn("Failed to resync shared host secrets after update", {
-          operation: "host_update_resync",
-          hostId: parseInt(hostId),
-          error:
-            resyncError instanceof Error
-              ? resyncError.message
-              : "Unknown error",
-        });
-      }
+      const hostSecretsMayHaveChanged =
+        accessInfo.isOwner ||
+        !!personalProjectMetadata ||
+        !projectHostUpdateContext;
 
-      try {
-        await synchronizeProjectHostCredentialsForHost(Number(hostId), ownerId);
-      } catch (resyncError) {
-        sshLogger.warn(
-          "Failed to resync project credentials after host update",
-          {
-            operation: "host_update_project_credential_resync",
+      if (hostSecretsMayHaveChanged) {
+        // Keep every recipient's re-encrypted secret snapshots in sync with
+        // the updated host record.
+        try {
+          const { SharedHostSecretsManager } =
+            await import("../../utils/shared-host-secrets-manager.js");
+          await SharedHostSecretsManager.getInstance().resyncHost(
+            Number(hostId),
+          );
+        } catch (resyncError) {
+          sshLogger.warn("Failed to resync shared host secrets after update", {
+            operation: "host_update_resync",
             hostId: parseInt(hostId),
-            errorType:
-              resyncError instanceof Error ? resyncError.name : "UnknownError",
-          },
-        );
+            error:
+              resyncError instanceof Error
+                ? resyncError.message
+                : "Unknown error",
+          });
+        }
+
+        try {
+          await synchronizeProjectHostCredentialsForHost(
+            Number(hostId),
+            ownerId,
+          );
+        } catch (resyncError) {
+          sshLogger.warn(
+            "Failed to resync project credentials after host update",
+            {
+              operation: "host_update_project_credential_resync",
+              hostId: parseInt(hostId),
+              errorType:
+                resyncError instanceof Error
+                  ? resyncError.name
+                  : "UnknownError",
+            },
+          );
+        }
       }
 
       const updatedHost =
-        await createCurrentHostResolutionRepository().findHostById(
+        updatedHostRecord ??
+        (await createCurrentHostResolutionRepository().findHostById(
           Number(hostId),
           ownerId,
-        );
+        ));
 
       if (!updatedHost) {
         sshLogger.warn("Updated host not found after update", {
@@ -1724,7 +1757,19 @@ router.put(
 
       // 更新后的秘密只保存在凭据库中；响应仅返回 hasPassword/hasKey
       // 等存在性标记，避免已打开的终端标签缓存旧密码并覆盖新值。
-      res.json(stripSensitiveFields(resolvedHost));
+      const responseHost = accessInfo.isOwner
+        ? resolvedHost
+        : {
+            ...resolvedHost,
+            isShared: true,
+            permissionLevel: accessInfo.permissionLevel,
+            sharedExpiresAt: accessInfo.expiresAt || undefined,
+          };
+      res.json(
+        accessInfo.isOwner
+          ? stripSensitiveFields(responseHost)
+          : sanitizeHostForRecipient(responseHost, accessInfo.permissionLevel),
+      );
       notifyStatsHostUpdated(parseInt(hostId), req.headers, "host_update");
     } catch (err) {
       if (err instanceof PersonalProjectHostLinkNotFoundError) {

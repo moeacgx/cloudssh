@@ -168,6 +168,7 @@ export function WorkspaceUtilityRail({
   const [panelDragging, setPanelDragging] = useState(false);
   const [mobileConversationAction, setMobileConversationAction] =
     useState<PanelAgentConversationAction | null>(null);
+  const [desktopAgentMounted, setDesktopAgentMounted] = useState(false);
 
   useEffect(() => {
     writeLocalStorage(UTILITY_PANEL_WIDTH_KEY, String(panelWidth));
@@ -300,8 +301,10 @@ export function WorkspaceUtilityRail({
     return () => cancelAnimationFrame(frame);
   }, [onLayoutChange, view, panelWidth]);
 
-  const toggle = (next: Exclude<UtilityView, null>) =>
+  function toggle(next: Exclude<UtilityView, null>) {
+    if (next === "agent") setDesktopAgentMounted(true);
     setView((current) => (current === next ? null : next));
+  }
 
   const mobilePanelHeight = compactMobileAgentPanelHeight(mobileViewportHeight);
   const mobilePanelTop = Math.max(
@@ -338,51 +341,68 @@ export function WorkspaceUtilityRail({
   return (
     <>
       <aside className="hidden shrink-0 border-l border-border bg-sidebar md:flex">
-        {view && (
+        {(view || desktopAgentMounted) && (
           <div
-            className={`relative flex min-w-0 shrink-0 flex-col border-r bg-background transition-colors ${panelDragging ? "border-accent-brand/60" : "border-border"}`}
+            hidden={view === null}
+            className={`relative min-w-0 shrink-0 flex-col border-r bg-background transition-colors ${view === null ? "hidden" : "flex"} ${panelDragging ? "border-accent-brand/60" : "border-border"}`}
             style={{
               width: panelWidth,
               transition: panelDragging ? "none" : "width 0.16s",
             }}
           >
-            <div
-              aria-orientation="vertical"
-              className={`absolute left-0 top-0 bottom-0 z-30 w-1 -translate-x-1/2 cursor-col-resize transition-colors ${panelDragging ? "bg-accent-brand/60" : "hover:bg-accent-brand/40"}`}
-              data-workspace-utility-resize-handle="true"
-              onMouseDown={onPanelResizeMouseDown}
-              role="separator"
-              title={t("workspace.utility.resizePanel")}
-            />
-            <div className="flex h-11 items-center border-b border-border px-3">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold">
-                  {view === "agent"
-                    ? t("workspace.utility.agentChat")
-                    : t("workspace.utility.activityLog")}
-                </p>
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {activeProject.name}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="ml-auto size-7"
-                onClick={() => setView(null)}
-                title={t("workspace.utility.collapse")}
-              >
-                <ChevronRight className="size-3.5" />
-              </Button>
-            </div>
+            {view && (
+              <>
+                <div
+                  aria-orientation="vertical"
+                  className={`absolute left-0 top-0 bottom-0 z-30 w-1 -translate-x-1/2 cursor-col-resize transition-colors ${panelDragging ? "bg-accent-brand/60" : "hover:bg-accent-brand/40"}`}
+                  data-workspace-utility-resize-handle="true"
+                  onMouseDown={onPanelResizeMouseDown}
+                  role="separator"
+                  title={t("workspace.utility.resizePanel")}
+                />
+                <div className="flex h-11 items-center border-b border-border px-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold">
+                      {view === "agent"
+                        ? t("workspace.utility.agentChat")
+                        : t("workspace.utility.activityLog")}
+                    </p>
+                    <p className="truncate text-[10px] text-muted-foreground">
+                      {activeProject.name}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto size-7"
+                    onClick={() => setView(null)}
+                    title={t("workspace.utility.collapse")}
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </Button>
+                </div>
+              </>
+            )}
 
-            {view === "agent" ? (
-              <PanelAgentPanel
-                terminalTabs={terminalTabs}
-                activeTabId={activeTabId}
-                embedded
-              />
-            ) : (
+            {desktopAgentMounted && (
+              <div
+                hidden={view !== "agent"}
+                className="min-h-0 flex-1 flex-col overflow-hidden data-[visible=true]:flex"
+                data-visible={view === "agent"}
+              >
+                <PanelAgentPanel
+                  terminalTabs={terminalTabs}
+                  activeTabId={activeTabId}
+                  embedded
+                />
+              </div>
+            )}
+
+            <div
+              hidden={view !== "activity"}
+              className="min-h-0 flex-1 flex-col overflow-hidden data-[visible=true]:flex"
+              data-visible={view === "activity"}
+            >
               <ScrollArea className="flex-1">
                 <div className="divide-y divide-border">
                   {activities.length === 0 ? (
@@ -423,7 +443,7 @@ export function WorkspaceUtilityRail({
                   )}
                 </div>
               </ScrollArea>
-            )}
+            </div>
           </div>
         )}
 

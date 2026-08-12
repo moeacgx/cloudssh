@@ -387,6 +387,82 @@ export class HostRepository {
     );
   }
 
+  // Project administrators may edit shared project host feature flags without
+  // holding the host owner's DEK. Callers must pass only non-secret plaintext
+  // columns; this method keeps the host update and project metadata atomic.
+  async updateNonSensitiveForUserWithProjectMetadata(
+    hostOwnerId: string,
+    hostId: number,
+    update: HostUpdate,
+    metadata: ProjectHostMetadataUpdate,
+  ): Promise<HostRecord | null> {
+    const updated = this.context.drizzle.transaction((tx) => {
+      const link = tx
+        .select({
+          id: projectHosts.id,
+          projectId: projectHosts.projectId,
+        })
+        .from(projectHosts)
+        .innerJoin(projects, eq(projectHosts.projectId, projects.id))
+        .where(
+          and(
+            eq(projectHosts.id, metadata.projectHostId),
+            eq(projectHosts.hostId, hostId),
+            eq(projects.id, metadata.projectId),
+          ),
+        )
+        .limit(1)
+        .all()[0];
+
+      if (!link) {
+        throw new ProjectHostLinkNotFoundError();
+      }
+
+      const hostRow =
+        Object.keys(update).length > 0
+          ? tx
+              .update(hosts)
+              .set({ ...update, updatedAt: sql`CURRENT_TIMESTAMP` })
+              .where(and(eq(hosts.id, hostId), eq(hosts.userId, hostOwnerId)))
+              .returning()
+              .all()[0]
+          : tx
+              .select()
+              .from(hosts)
+              .where(and(eq(hosts.id, hostId), eq(hosts.userId, hostOwnerId)))
+              .limit(1)
+              .all()[0];
+      if (!hostRow) return null;
+
+      if (metadata.folder) {
+        tx.insert(projectFolders)
+          .values({ projectId: link.projectId, path: metadata.folder })
+          .onConflictDoNothing()
+          .run();
+      }
+      const metadataUpdate = {
+        alias: metadata.alias,
+        folder: metadata.folder,
+        ...(metadata.tags !== undefined ? { tags: metadata.tags } : {}),
+      };
+      tx.update(projectHosts)
+        .set(metadataUpdate)
+        .where(
+          and(
+            eq(projectHosts.id, link.id),
+            eq(projectHosts.projectId, link.projectId),
+          ),
+        )
+        .run();
+
+      return hostRow;
+    });
+
+    if (!updated) return null;
+    await this.afterWrite();
+    return updated;
+  }
+
   private async updateEncryptedForUserWithProjectMetadataTarget(
     hostOwnerId: string,
     hostId: number,

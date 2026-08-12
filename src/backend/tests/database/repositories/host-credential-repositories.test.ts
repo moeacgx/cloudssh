@@ -943,6 +943,125 @@ describe("HostRepository and CredentialRepository", () => {
     expect(onWrite).toHaveBeenCalledTimes(1);
   });
 
+  it("updates project-editable Docker settings and metadata atomically", async () => {
+    const onWrite = vi.fn();
+    const repo = await createRepositories(undefined, onWrite);
+
+    const host = await repo.hosts.create({
+      userId: "user-1",
+      name: "docker-host",
+      ip: "10.0.0.30",
+      port: 22,
+      username: "root",
+      authType: "password",
+      enableDocker: false,
+    });
+    repo.sqlite.exec(`
+      INSERT INTO projects
+        (id, team_id, owner_user_id, kind, name, slug)
+      VALUES ('team-project-3', 'team-3', 'user-1', 'team', 'Project 3', 'project-3');
+    `);
+    const projectHostId = Number(
+      repo.sqlite
+        .prepare(
+          `INSERT INTO project_hosts (project_id, host_id, added_by)
+           VALUES ('team-project-3', ?, 'user-1')`,
+        )
+        .run(host.id).lastInsertRowid,
+    );
+    onWrite.mockClear();
+
+    await repo.hosts.updateNonSensitiveForUserWithProjectMetadata(
+      "user-1",
+      host.id,
+      {
+        enableDocker: true,
+        dockerConfig: JSON.stringify({ runtime: "podman" }),
+      },
+      {
+        projectId: "team-project-3",
+        projectHostId,
+        alias: "Docker entry",
+        folder: "Ops",
+        tags: "docker,ops",
+      },
+    );
+
+    expect(
+      repo.sqlite
+        .prepare(
+          "SELECT enable_docker AS enableDocker, docker_config AS dockerConfig FROM ssh_data WHERE id = ?",
+        )
+        .get(host.id),
+    ).toEqual({
+      enableDocker: 1,
+      dockerConfig: JSON.stringify({ runtime: "podman" }),
+    });
+    expect(
+      repo.sqlite
+        .prepare("SELECT alias, folder, tags FROM project_hosts WHERE id = ?")
+        .get(projectHostId),
+    ).toEqual({ alias: "Docker entry", folder: "Ops", tags: "docker,ops" });
+    expect(onWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back project-editable Docker settings when metadata cannot be saved", async () => {
+    const onWrite = vi.fn();
+    const repo = await createRepositories(undefined, onWrite);
+
+    const host = await repo.hosts.create({
+      userId: "user-1",
+      name: "docker-host",
+      ip: "10.0.0.31",
+      port: 22,
+      username: "root",
+      authType: "password",
+      enableDocker: false,
+    });
+    repo.sqlite.exec(`
+      INSERT INTO projects
+        (id, team_id, owner_user_id, kind, name, slug)
+      VALUES ('team-project-4', 'team-4', 'user-1', 'team', 'Project 4', 'project-4');
+      INSERT INTO project_hosts (project_id, host_id, added_by)
+      VALUES ('team-project-4', ${host.id}, 'user-1');
+      CREATE TRIGGER reject_project_editable_metadata_update
+      BEFORE UPDATE ON project_hosts
+      BEGIN
+        SELECT RAISE(ABORT, 'project editable metadata rejected');
+      END;
+    `);
+    const projectHost = repo.sqlite
+      .prepare("SELECT id FROM project_hosts WHERE host_id = ?")
+      .get(host.id) as { id: number };
+    onWrite.mockClear();
+
+    await expect(
+      repo.hosts.updateNonSensitiveForUserWithProjectMetadata(
+        "user-1",
+        host.id,
+        {
+          enableDocker: true,
+          dockerConfig: JSON.stringify({ runtime: "podman" }),
+        },
+        {
+          projectId: "team-project-4",
+          projectHostId: projectHost.id,
+          alias: "Docker entry",
+          folder: null,
+        },
+      ),
+    ).rejects.toThrow("project editable metadata rejected");
+
+    expect(
+      repo.sqlite
+        .prepare(
+          "SELECT enable_docker AS enableDocker, docker_config AS dockerConfig FROM ssh_data WHERE id = ?",
+        )
+        .get(host.id),
+    ).toEqual({ enableDocker: 0, dockerConfig: null });
+    expect(onWrite).not.toHaveBeenCalled();
+  });
+
   it("rolls back a team host update when project metadata cannot be saved", async () => {
     const onWrite = vi.fn();
     const repo = await createRepositories(undefined, onWrite);
