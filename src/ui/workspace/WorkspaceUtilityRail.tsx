@@ -270,6 +270,10 @@ export function WorkspaceUtilityRail({
     setMobileAgentMode("quick");
   }
 
+  function collapseMobileAgentPanel() {
+    setMobileAgentMode("bubble");
+  }
+
   function runMobileConversationAction(
     type: PanelAgentConversationAction["type"],
   ) {
@@ -481,6 +485,15 @@ export function WorkspaceUtilityRail({
       </aside>
 
       <div className="md:hidden">
+        {mobileAgentMounted && mobileAgentMode === "quick" && (
+          <div
+            aria-hidden="true"
+            className="fixed inset-0 z-40 bg-transparent"
+            data-testid="mobile-agent-outside-dismiss"
+            onPointerDown={collapseMobileAgentPanel}
+          />
+        )}
+
         {mobileAgentMounted && (
           <div
             role="dialog"
@@ -552,7 +565,7 @@ export function WorkspaceUtilityRail({
                 variant="ghost"
                 size="icon"
                 className="size-7"
-                onClick={() => setMobileAgentMode("bubble")}
+                onClick={collapseMobileAgentPanel}
                 aria-label={t("workspace.utility.agentFloatMinimize")}
                 title={t("workspace.utility.agentFloatMinimize")}
               >

@@ -116,6 +116,29 @@ describe("WorkspaceUtilityRail", () => {
     );
   });
 
+  it("collapses the mobile Agent when tapping outside the floating panel", async () => {
+    renderRail();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.agentFloat" }),
+    );
+    const draft = screen.getByLabelText("mock Agent draft");
+    fireEvent.change(draft, { target: { value: "preserve draft" } });
+
+    fireEvent.pointerDown(screen.getByTestId("mobile-agent-outside-dismiss"));
+
+    expect(
+      screen.queryByRole("dialog", { name: "workspace.utility.agentChat" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace.utility.agentFloat" }),
+    );
+    expect(screen.getByLabelText("mock Agent draft")).toHaveProperty(
+      "value",
+      "preserve draft",
+    );
+  });
+
   it("hides the mobile Agent to a tucked edge handle", () => {
     renderRail();
 
