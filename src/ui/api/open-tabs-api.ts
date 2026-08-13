@@ -1,5 +1,10 @@
 import { agentApi, authApi } from "@/main-axios";
 import { createTtlRequestCache } from "@/lib/ttl-request-cache";
+import {
+  clearBrowserTtlCache,
+  readBrowserTtlCache,
+  writeBrowserTtlCache,
+} from "@/lib/browser-ttl-cache";
 import type { TerminalTheme } from "@/lib/terminal-themes";
 import type { CustomKeybinding } from "@/types/keybindings";
 
@@ -74,19 +79,51 @@ export interface ActiveSessionInfo {
   runtimeMode?: "platform" | "tmux" | null;
 }
 
+const OPEN_TABS_BROWSER_CACHE_KEY = "cloudssh.openTabs.v1";
+const ACTIVE_SESSIONS_BROWSER_CACHE_KEY = "cloudssh.activeSessions.v1";
+const OPEN_TABS_BROWSER_CACHE_TTL_MS = 10_000;
+const ACTIVE_SESSIONS_BROWSER_CACHE_TTL_MS = 5_000;
+
+const openTabsCache = createTtlRequestCache<OpenTabRecord[]>(2_000);
 const activeSessionsCache = createTtlRequestCache<ActiveSessionInfo[]>(2_000);
 
+export function invalidateOpenTabsCache(): void {
+  openTabsCache.invalidate();
+  clearBrowserTtlCache(OPEN_TABS_BROWSER_CACHE_KEY);
+}
+
+export function invalidateActiveSessionsCache(): void {
+  activeSessionsCache.invalidate();
+  clearBrowserTtlCache(ACTIVE_SESSIONS_BROWSER_CACHE_KEY);
+}
+
 export async function getOpenTabs(): Promise<OpenTabRecord[]> {
-  const response = await authApi.get("/open-tabs");
-  return response.data;
+  return openTabsCache.get(async () => {
+    const cached = readBrowserTtlCache<OpenTabRecord[]>(
+      OPEN_TABS_BROWSER_CACHE_KEY,
+    );
+    if (cached) return cached;
+
+    const response = await authApi.get("/open-tabs");
+    const records = Array.isArray(response.data) ? response.data : [];
+    writeBrowserTtlCache(
+      OPEN_TABS_BROWSER_CACHE_KEY,
+      records,
+      OPEN_TABS_BROWSER_CACHE_TTL_MS,
+    );
+    return records;
+  });
 }
 
 export async function syncOpenTabs(tabs: OpenTabSyncPayload[]): Promise<void> {
   await authApi.put("/open-tabs", { tabs });
+  invalidateOpenTabsCache();
 }
 
 export async function deleteOpenTab(instanceId: string): Promise<void> {
   await authApi.delete(`/open-tabs/${instanceId}`);
+  invalidateOpenTabsCache();
+  invalidateActiveSessionsCache();
 }
 
 export function upsertOpenTabRecord(
@@ -108,33 +145,48 @@ export async function detachPinnedOpenTab(
   const response = await authApi.post<DetachPinnedOpenTabResponse>(
     `/open-tabs/${instanceId}/detach`,
   );
+  invalidateOpenTabsCache();
+  invalidateActiveSessionsCache();
   return response.data.tab;
 }
 
 export async function patchOpenTab(
   instanceId: string,
   updates: Partial<
-    Pick<OpenTabRecord, "label" | "tabOrder" | "backendSessionId">
+    Pick<OpenTabRecord, "label" | "tabOrder" | "backendSessionId" | "hostId">
   >,
 ): Promise<void> {
   await authApi.patch(`/open-tabs/${instanceId}`, updates);
+  invalidateOpenTabsCache();
 }
 
 export async function addOpenTab(tab: OpenTabUpsertPayload): Promise<void> {
   await authApi.post("/open-tabs", tab);
+  invalidateOpenTabsCache();
 }
 
 export async function closeAgentSession(sessionId: string): Promise<void> {
   await agentApi.post(
     `/agent/admin/v1/sessions/${encodeURIComponent(sessionId)}/close`,
   );
-  activeSessionsCache.invalidate();
+  invalidateActiveSessionsCache();
 }
 
 export async function getActiveSessions(): Promise<ActiveSessionInfo[]> {
   return activeSessionsCache.get(async () => {
+    const cached = readBrowserTtlCache<ActiveSessionInfo[]>(
+      ACTIVE_SESSIONS_BROWSER_CACHE_KEY,
+    );
+    if (cached) return cached;
+
     const response = await authApi.get("/open-tabs/active-sessions");
-    return Array.isArray(response.data) ? response.data : [];
+    const sessions = Array.isArray(response.data) ? response.data : [];
+    writeBrowserTtlCache(
+      ACTIVE_SESSIONS_BROWSER_CACHE_KEY,
+      sessions,
+      ACTIVE_SESSIONS_BROWSER_CACHE_TTL_MS,
+    );
+    return sessions;
   });
 }
 

@@ -835,6 +835,7 @@
       "agentSessions": "Agent 会话",
       "agentChat": "Agent 对话",
       "agentFloat": "打开浮动 Agent",
+      "agentFloatDesktop": "打开桌面浮动 Agent",
       "agentFloatMinimize": "最小化浮动 Agent",
       "agentFloatHide": "隐藏浮动 Agent",
       "agentFloatRestore": "恢复浮动 Agent",

@@ -30,9 +30,11 @@ import { ProjectSettingsDialog } from "@/workspace/ProjectSettingsDialog";
 export function ProjectOverview({
   onOpenTab,
   onOpenAgentSession,
+  onOpenPersistentSession,
 }: {
   onOpenTab: (host: Host, type: TabType) => void;
   onOpenAgentSession?: (host: Host, sessionId: string, label: string) => void;
+  onOpenPersistentSession?: (host: Host, session: ActiveSessionInfo) => void;
 }) {
   const { t, i18n } = useTranslation();
   const { activeProject, refreshProjects } = useWorkspace();
@@ -131,6 +133,28 @@ export function ProjectOverview({
     () => new Map(hosts.map((host) => [Number(host.projectHostId), host])),
     [hosts],
   );
+  const hostByHostId = useMemo(
+    () => new Map(hosts.map((host) => [Number(host.id), host])),
+    [hosts],
+  );
+  const webPersistentSessions = useMemo(
+    () =>
+      sessions.filter(
+        (session) =>
+          session.isOwnSession &&
+          session.sessionSource !== "agent" &&
+          (session.sessionPinned || session.recoverable),
+      ),
+    [sessions],
+  );
+  const persistentSessionRowsCount =
+    agentSessions.length + webPersistentSessions.length;
+
+  function pinnedSessionLabelKey(managedTmux: boolean | undefined) {
+    if (managedTmux === true) return "connections.tmuxPinnedSession";
+    if (managedTmux === false) return "connections.platformKeepaliveSession";
+    return "connections.pinnedSession";
+  }
 
   function describeActivity(item: AgentActivity): string {
     const action = item.action.toLowerCase();
@@ -326,7 +350,7 @@ export function ProjectOverview({
               <h2 className="text-xs font-semibold">
                 {t("workspace.persistentSessions")}
               </h2>
-              {agentSessions.length > 0 && (
+              {persistentSessionRowsCount > 0 && (
                 <span className="text-[10px] text-muted-foreground">
                   {t("workspace.agentSessionHint")}
                 </span>
@@ -335,80 +359,137 @@ export function ProjectOverview({
             <TerminalSquare className="size-3.5 text-muted-foreground" />
           </div>
           <div className="divide-y divide-border border border-border">
-            {agentSessions.length === 0 ? (
+            {persistentSessionRowsCount === 0 ? (
               <div className="px-4 py-7 text-center text-xs text-muted-foreground">
                 {t("workspace.noPersistentSessions")}
               </div>
             ) : (
-              agentSessions.map((session) => {
-                const host = hostByProjectHostId.get(
-                  Number(session.projectHostId),
-                );
-                const hostModel = host ? sshHostToHost(host) : undefined;
-                const isRunning =
-                  session.state === "RUNNING" || session.state === "RECOVERING";
-                return (
-                  <div
-                    key={session.id}
-                    className="group flex flex-wrap items-center gap-3 px-3.5 py-3"
-                  >
-                    <span
-                      className={`size-2 shrink-0 rounded-full ${isRunning ? "bg-emerald-500" : "bg-amber-500"}`}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <p className="truncate text-xs font-medium">
-                          {session.title || session.serverName}
+              <>
+                {agentSessions.map((session) => {
+                  const host = hostByProjectHostId.get(
+                    Number(session.projectHostId),
+                  );
+                  const hostModel = host ? sshHostToHost(host) : undefined;
+                  const isRunning =
+                    session.state === "RUNNING" ||
+                    session.state === "RECOVERING";
+                  return (
+                    <div
+                      key={session.id}
+                      className="group flex flex-wrap items-center gap-3 px-3.5 py-3"
+                    >
+                      <span
+                        className={`size-2 shrink-0 rounded-full ${isRunning ? "bg-emerald-500" : "bg-amber-500"}`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-xs font-medium">
+                            {session.title || session.serverName}
+                          </p>
+                          <span className="rounded border border-violet-400/40 bg-violet-500/10 px-1 py-0.5 text-[9px] font-semibold text-violet-600 dark:text-violet-300">
+                            Agent
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                          {session.serverName} · {t("workspace.agentActor")} ·{" "}
+                          {t(
+                            session.state === "CREATING"
+                              ? "workspace.sessionStateCreating"
+                              : session.state === "RUNNING"
+                                ? "workspace.sessionStateRunning"
+                                : session.state === "RECOVERING"
+                                  ? "workspace.sessionStateRecovering"
+                                  : "workspace.sessionStateClosing",
+                          )}
                         </p>
-                        <span className="rounded border border-violet-400/40 bg-violet-500/10 px-1 py-0.5 text-[9px] font-semibold text-violet-600 dark:text-violet-300">
-                          Agent
-                        </span>
                       </div>
-                      <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                        {session.serverName} · {t("workspace.agentActor")} ·{" "}
-                        {t(
-                          session.state === "CREATING"
-                            ? "workspace.sessionStateCreating"
-                            : session.state === "RUNNING"
-                              ? "workspace.sessionStateRunning"
-                              : session.state === "RECOVERING"
-                                ? "workspace.sessionStateRecovering"
-                                : "workspace.sessionStateClosing",
+                      <div className="flex items-center gap-1.5">
+                        {hostModel && onOpenAgentSession && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-[10px]"
+                            disabled={!isRunning}
+                            onClick={() =>
+                              onOpenAgentSession(
+                                hostModel,
+                                session.id,
+                                session.title || session.serverName,
+                              )
+                            }
+                          >
+                            {t("workspace.enterAgentSession")}
+                          </Button>
                         )}
-                      </p>
+                        {hostModel && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-[10px]"
+                            onClick={() => onOpenTab(hostModel, "terminal")}
+                          >
+                            {t("workspace.newSshTerminal")}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {hostModel && onOpenAgentSession && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-[10px]"
-                          disabled={!isRunning}
-                          onClick={() =>
-                            onOpenAgentSession(
-                              hostModel,
-                              session.id,
-                              session.title || session.serverName,
-                            )
-                          }
-                        >
-                          {t("workspace.enterAgentSession")}
-                        </Button>
-                      )}
-                      {hostModel && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-[10px]"
-                          onClick={() => onOpenTab(hostModel, "terminal")}
-                        >
-                          {t("workspace.newSshTerminal")}
-                        </Button>
-                      )}
+                  );
+                })}
+                {webPersistentSessions.map((session) => {
+                  const host =
+                    session.projectHostId != null
+                      ? hostByProjectHostId.get(Number(session.projectHostId))
+                      : hostByHostId.get(Number(session.hostId));
+                  const hostModel = host ? sshHostToHost(host) : undefined;
+                  const displayName = hostModel?.name ?? session.hostName;
+                  return (
+                    <div
+                      key={`web-${session.sessionId}`}
+                      className="group flex flex-wrap items-center gap-3 px-3.5 py-3"
+                    >
+                      <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-xs font-medium">
+                            {displayName}
+                          </p>
+                          <span className="rounded border border-emerald-400/40 bg-emerald-500/10 px-1 py-0.5 text-[9px] font-semibold text-emerald-600 dark:text-emerald-300">
+                            SSH
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                          {t(pinnedSessionLabelKey(session.sessionManagedTmux))}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {hostModel && onOpenPersistentSession && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-[10px]"
+                            disabled={!session.sessionId}
+                            onClick={() =>
+                              onOpenPersistentSession(hostModel, session)
+                            }
+                          >
+                            {t("connections.reconnect")}
+                          </Button>
+                        )}
+                        {hostModel && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-[10px]"
+                            onClick={() => onOpenTab(hostModel, "terminal")}
+                          >
+                            {t("workspace.newSshTerminal")}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </>
             )}
           </div>
         </section>

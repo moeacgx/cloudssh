@@ -1153,26 +1153,33 @@ export function PanelAgentPanel({
     );
   }
 
+  function closeTransientPanels() {
+    setSettingsOpen(false);
+    setHistoryOpen(false);
+  }
+
   function renderContextSettingsPanel() {
     return (
       <div
         data-testid="panel-agent-context-settings"
-        className="space-y-3 rounded-2xl border border-accent-brand/20 bg-background/70 p-3 text-xs shadow-sm backdrop-blur-xl"
+        className="space-y-3 text-xs"
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2 font-semibold text-foreground">
-            <Settings2 className="size-3.5 text-accent-brand" />
+            <div className="flex size-7 items-center justify-center rounded-full border border-accent-brand/25 bg-accent-brand/10 text-accent-brand">
+              <Settings2 className="size-3.5" />
+            </div>
             <span>{t("panelAgent.contextSettings")}</span>
           </div>
           <button
             type="button"
-            className="rounded-full px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => setSettingsOpen(false)}
+            className="rounded-full px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={closeTransientPanels}
           >
             {t("common.close")}
           </button>
         </div>
-        <div className="space-y-2 rounded-xl border border-border/50 bg-background/45 p-2">
+        <div className="space-y-2 rounded-2xl border border-border/50 bg-background/55 p-2.5 shadow-sm backdrop-blur">
           <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
             <Server className="size-3" />
             {t("panelAgent.contextData")}
@@ -1197,7 +1204,7 @@ export function PanelAgentPanel({
                 return (
                   <label
                     key={tab.id}
-                    className={`flex cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-background/55 p-2 text-[11px] shadow-sm ${disabled ? "opacity-50" : "hover:border-accent-brand/30"}`}
+                    className={`flex cursor-pointer items-center gap-2 rounded-2xl border border-border/60 bg-background/65 p-2 text-[11px] shadow-sm transition-colors ${disabled ? "opacity-50" : "hover:border-accent-brand/30 hover:bg-background/80"}`}
                   >
                     <Checkbox
                       checked={selectedTabIds.has(tab.id)}
@@ -1222,7 +1229,7 @@ export function PanelAgentPanel({
             </div>
           )}
         </div>
-        <div className="space-y-2 rounded-xl border border-border/50 bg-background/45 p-2">
+        <div className="space-y-2 rounded-2xl border border-border/50 bg-background/55 p-2.5 shadow-sm backdrop-blur">
           <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
             <ShieldCheck className="size-3" />
             {t("panelAgent.skills")}
@@ -1241,7 +1248,7 @@ export function PanelAgentPanel({
                   key={skill.id}
                   type="button"
                   onClick={() => toggleSkill(skill.id)}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] shadow-sm transition-colors ${selectedSkillIds.has(skill.id) ? "border-accent-brand bg-accent-brand/10 text-accent-brand" : "border-border/70 bg-background/55 text-muted-foreground hover:border-accent-brand/30 hover:text-foreground"}`}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] shadow-sm transition-colors ${selectedSkillIds.has(skill.id) ? "border-accent-brand bg-accent-brand/10 text-accent-brand" : "border-border/70 bg-background/60 text-muted-foreground hover:border-accent-brand/30 hover:text-foreground"}`}
                   aria-pressed={selectedSkillIds.has(skill.id)}
                 >
                   {skill.name}
@@ -1250,6 +1257,77 @@ export function PanelAgentPanel({
             </div>
           )}
         </div>
+      </div>
+    );
+  }
+
+  function renderHistoryPanel() {
+    return (
+      <div data-testid="panel-agent-history" className="space-y-2 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 font-semibold text-foreground">
+            <div className="flex size-7 items-center justify-center rounded-full border border-accent-brand/25 bg-accent-brand/10 text-accent-brand">
+              <History className="size-3.5" />
+            </div>
+            <span>{t("panelAgent.history")}</span>
+          </div>
+          <button
+            type="button"
+            className="rounded-full px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={closeTransientPanels}
+          >
+            {t("common.close")}
+          </button>
+        </div>
+        {conversationHistory.length === 0 ? (
+          <p className="rounded-2xl border border-border/50 bg-background/55 p-3 text-[11px] text-muted-foreground">
+            {t("panelAgent.noHistory")}
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {conversationHistory.map((conversation) => (
+              <button
+                key={conversation.id}
+                type="button"
+                className="flex w-full items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-2.5 py-2 text-left text-[11px] shadow-sm transition-colors hover:bg-background/80"
+                onClick={() => restoreConversation(conversation.id)}
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {conversation.title}
+                </span>
+                <time className="shrink-0 text-[10px] text-muted-foreground">
+                  {new Date(conversation.updatedAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderFloatingPanel() {
+    const panel = settingsOpen
+      ? renderContextSettingsPanel()
+      : historyOpen
+        ? renderHistoryPanel()
+        : null;
+    if (!panel) return null;
+
+    return (
+      <div
+        data-testid="panel-agent-floating-panel"
+        className={`absolute inset-x-2 z-30 max-h-[calc(100%-1rem)] overflow-y-auto overscroll-contain rounded-[1.65rem] border border-white/55 bg-white/80 p-3 shadow-[0_18px_60px_rgba(15,23,42,0.18)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-950/80 ${compact ? "top-2" : "top-3"}`}
+        style={{
+          backgroundColor: "rgba(255, 255, 255, 0.78)",
+          backdropFilter: "blur(32px) saturate(165%)",
+          WebkitBackdropFilter: "blur(32px) saturate(165%)",
+        }}
+      >
+        {panel}
       </div>
     );
   }
@@ -1279,7 +1357,7 @@ export function PanelAgentPanel({
         className={`flex min-h-0 flex-1 flex-col overflow-hidden ${compact ? "gap-2 px-3 pb-3 pt-2" : "gap-3 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.08),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_30%)] p-3"}`}
       >
         <section
-          className={`flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-0" : "overflow-hidden rounded-3xl border border-border/60 bg-card/75 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl"}`}
+          className={`relative flex min-h-0 flex-1 flex-col gap-2 ${compact ? "border-0 bg-transparent p-0" : "overflow-hidden rounded-3xl border border-border/60 bg-card/75 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl"}`}
           style={
             !compact
               ? {
@@ -1382,49 +1460,13 @@ export function PanelAgentPanel({
               </div>
             </div>
           )}
+          {renderFloatingPanel()}
           <div
             data-testid="panel-agent-message-list"
             ref={messageListRef}
             className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 touch-pan-y [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] ${compact ? "rounded-xl" : "rounded-2xl border border-border/40 bg-background/35 p-2"}`}
             style={{ overflowY: "auto", overscrollBehavior: "contain" }}
           >
-            {settingsOpen && renderContextSettingsPanel()}
-            {historyOpen && (
-              <div
-                data-testid="panel-agent-history"
-                className="space-y-2 rounded-xl border border-border/60 bg-background/35 p-2 text-xs shadow-sm backdrop-blur"
-              >
-                <div className="font-semibold text-foreground">
-                  {t("panelAgent.history")}
-                </div>
-                {conversationHistory.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    {t("panelAgent.noHistory")}
-                  </p>
-                ) : (
-                  <div className="space-y-1">
-                    {conversationHistory.map((conversation) => (
-                      <button
-                        key={conversation.id}
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded-lg border border-border/60 bg-background/35 px-2 py-1.5 text-left text-[11px] hover:bg-background/55"
-                        onClick={() => restoreConversation(conversation.id)}
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {conversation.title}
-                        </span>
-                        <time className="shrink-0 text-[10px] text-muted-foreground">
-                          {new Date(conversation.updatedAt).toLocaleTimeString(
-                            [],
-                            { hour: "2-digit", minute: "2-digit" },
-                          )}
-                        </time>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             {messages.length === 0 && !historyOpen ? (
               compact ? (
                 <div className="min-h-4" aria-hidden="true" />

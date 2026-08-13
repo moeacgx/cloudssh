@@ -23,6 +23,7 @@ function bindInvalidationListeners(): void {
 
   window.addEventListener("ssh-hosts:changed", invalidateHosts);
   window.addEventListener("hosts:refresh", invalidateHosts);
+  window.addEventListener("termix:hosts-changed", invalidateHosts);
 }
 
 export function getCachedSSHHosts(

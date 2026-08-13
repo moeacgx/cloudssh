@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: "${CLOUDSSH_IMAGE:-cloudssh-termix:2.6.0-cloudssh.50}"
+    image: "${CLOUDSSH_IMAGE:-cloudssh-termix:2.6.0-cloudssh.51}"
     restart: unless-stopped
     stop_grace_period: 60s
     ports:

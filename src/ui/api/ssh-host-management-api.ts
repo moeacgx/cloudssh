@@ -12,7 +12,10 @@ import {
   getCachedSSHHosts,
   invalidateHostsAndStatusCaches,
 } from "@/lib/hosts-request-cache";
-import { requireResolvedWorkspaceProjectId } from "@/api/workspace-api";
+import {
+  invalidateWorkspaceProjectCaches,
+  requireResolvedWorkspaceProjectId,
+} from "@/api/workspace-api";
 
 // SSH HOST MANAGEMENT
 // ============================================================================
@@ -101,11 +104,13 @@ export async function createSSHHost(
         headers: { "Content-Type": "multipart/form-data" },
       });
       invalidateHostsAndStatusCaches();
+      invalidateWorkspaceProjectCaches();
       return response.data;
     }
 
     const response = await sshHostApi.post("/db/host", requestData);
     invalidateHostsAndStatusCaches();
+    invalidateWorkspaceProjectCaches();
     return response.data;
   } catch (error) {
     throw handleApiError(error, "create SSH host");
@@ -138,10 +143,12 @@ export async function updateSSHHost(
         headers: { "Content-Type": "multipart/form-data" },
       });
       invalidateHostsAndStatusCaches();
+      invalidateWorkspaceProjectCaches();
       return response.data;
     }
     const response = await sshHostApi.put(`/db/host/${hostId}`, requestData);
     invalidateHostsAndStatusCaches();
+    invalidateWorkspaceProjectCaches();
     return response.data;
   } catch (error) {
     throw handleApiError(error, "update SSH host");
@@ -271,6 +278,7 @@ export async function bulkImportSSHHosts(
     });
     const result = await associateImportedHosts(response.data, projectId);
     invalidateHostsAndStatusCaches();
+    invalidateWorkspaceProjectCaches();
     return result;
   } catch (error) {
     handleApiError(error, "bulk import SSH hosts");
@@ -289,6 +297,7 @@ export async function importSSHConfigHosts(
     });
     const result = await associateImportedHosts(response.data, projectId);
     invalidateHostsAndStatusCaches();
+    invalidateWorkspaceProjectCaches();
     return result;
   } catch (error) {
     handleApiError(error, "import SSH config hosts");
@@ -335,6 +344,7 @@ export async function bulkUpdateSSHHosts(
       updates,
     });
     invalidateHostsAndStatusCaches();
+    invalidateWorkspaceProjectCaches();
     return response.data;
   } catch (error) {
     handleApiError(error, "bulk update SSH hosts");
@@ -347,6 +357,7 @@ export async function deleteSSHHost(
   try {
     const response = await sshHostApi.delete(`/db/host/${hostId}`);
     invalidateHostsAndStatusCaches();
+    invalidateWorkspaceProjectCaches();
     return response.data;
   } catch (error) {
     handleApiError(error, "delete SSH host");

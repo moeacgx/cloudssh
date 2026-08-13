@@ -23,6 +23,7 @@ import type {
   TerminalHostConfig,
 } from "@/features/terminal/Terminal";
 import type { TerminalSessionPersistenceState } from "@/features/terminal/terminal-types";
+import type { ActiveSessionInfo } from "@/api/open-tabs-api";
 import type { GuacamoleAppHandle } from "@/features/guacamole/GuacamoleApp";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Tab, TabType, Host } from "@/types/ui-types";
@@ -296,6 +297,7 @@ export function renderTabContent(
     state: TerminalSessionPersistenceState,
   ) => void,
   onOpenAgentSession?: (host: Host, sessionId: string, label: string) => void,
+  onOpenPersistentSession?: (host: Host, session: ActiveSessionInfo) => void,
 ) {
   const { host, label } = tab;
 
@@ -305,6 +307,7 @@ export function renderTabContent(
         <ProjectOverview
           onOpenTab={onOpenTab!}
           onOpenAgentSession={onOpenAgentSession}
+          onOpenPersistentSession={onOpenPersistentSession}
         />,
       );
 

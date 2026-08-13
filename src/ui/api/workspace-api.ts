@@ -1,4 +1,10 @@
 import { authApi, handleApiError } from "@/main-axios";
+import {
+  clearBrowserTtlCache,
+  clearBrowserTtlCachesByPrefix,
+  readBrowserTtlCache,
+  writeBrowserTtlCache,
+} from "@/lib/browser-ttl-cache";
 import type { HostNetworkInfo } from "@/types/index";
 
 export type WorkspaceRole =
@@ -132,10 +138,32 @@ function encodeWorkspaceProjectId(projectId: string): string {
   return encodeURIComponent(requireResolvedWorkspaceProjectId(projectId));
 }
 
+const PROJECT_OVERVIEW_CACHE_TTL_MS = 5_000;
+const PROJECT_SERVERS_CACHE_TTL_MS = 30_000;
+const PROJECT_FOLDERS_CACHE_TTL_MS = 30_000;
+
+function projectCacheKey(projectId: string, scope: string): string {
+  return `workspace.${scope}.${encodeWorkspaceProjectId(projectId)}`;
+}
+
+export function invalidateWorkspaceProjectCaches(projectId?: string): void {
+  if (projectId) {
+    clearBrowserTtlCache(projectCacheKey(projectId, "overview"));
+    clearBrowserTtlCache(projectCacheKey(projectId, "servers"));
+    clearBrowserTtlCache(projectCacheKey(projectId, "folders"));
+    return;
+  }
+  clearBrowserTtlCachesByPrefix("workspace.");
+}
+
 export async function getWorkspaceProjectOverview(
   projectId: string,
 ): Promise<WorkspaceProjectOverview> {
   try {
+    const cacheKey = projectCacheKey(projectId, "overview");
+    const cached = readBrowserTtlCache<WorkspaceProjectOverview>(cacheKey);
+    if (cached) return cached;
+
     const response = await authApi.get(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/overview`,
     );
@@ -201,7 +229,9 @@ export async function getWorkspaceProjectOverview(
           status: item.success ? ("completed" as const) : ("failed" as const),
         }),
       );
-    return { sessions, recentAgentActivity };
+    const overview = { sessions, recentAgentActivity };
+    writeBrowserTtlCache(cacheKey, overview, PROJECT_OVERVIEW_CACHE_TTL_MS);
+    return overview;
   } catch (error) {
     const status = (error as { response?: { status?: number } }).response
       ?.status;
@@ -273,6 +303,7 @@ export async function updateWorkspaceProject(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}`,
       input,
     );
+    invalidateWorkspaceProjectCaches(projectId);
   } catch (error) {
     throw handleApiError(error, "update workspace project");
   }
@@ -282,10 +313,17 @@ export async function getWorkspaceProjectServers(
   projectId: string,
 ): Promise<WorkspaceProjectServer[]> {
   try {
+    const cacheKey = projectCacheKey(projectId, "servers");
+    const cached = readBrowserTtlCache<WorkspaceProjectServer[]>(cacheKey);
+    if (cached) return cached;
     const response = await authApi.get(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/servers`,
     );
-    return Array.isArray(response.data?.servers) ? response.data.servers : [];
+    const servers = Array.isArray(response.data?.servers)
+      ? response.data.servers
+      : [];
+    writeBrowserTtlCache(cacheKey, servers, PROJECT_SERVERS_CACHE_TTL_MS);
+    return servers;
   } catch (error) {
     throw handleApiError(error, "load workspace project servers");
   }
@@ -295,10 +333,17 @@ export async function getWorkspaceProjectFolders(
   projectId: string,
 ): Promise<WorkspaceProjectFolder[]> {
   try {
+    const cacheKey = projectCacheKey(projectId, "folders");
+    const cached = readBrowserTtlCache<WorkspaceProjectFolder[]>(cacheKey);
+    if (cached) return cached;
     const response = await authApi.get(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/folders`,
     );
-    return Array.isArray(response.data?.folders) ? response.data.folders : [];
+    const folders = Array.isArray(response.data?.folders)
+      ? response.data.folders
+      : [];
+    writeBrowserTtlCache(cacheKey, folders, PROJECT_FOLDERS_CACHE_TTL_MS);
+    return folders;
   } catch (error) {
     throw handleApiError(error, "load workspace project folders");
   }
@@ -326,6 +371,7 @@ export async function saveWorkspaceProjectFolder(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/folders/metadata`,
       input,
     );
+    invalidateWorkspaceProjectCaches(projectId);
   } catch (error) {
     throw handleApiError(error, "save workspace project folder");
   }
@@ -341,6 +387,7 @@ export async function renameWorkspaceProjectFolder(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/folders/rename`,
       { oldPath, newPath },
     );
+    invalidateWorkspaceProjectCaches(projectId);
   } catch (error) {
     throw handleApiError(error, "rename workspace project folder");
   }
@@ -355,6 +402,7 @@ export async function deleteWorkspaceProjectFolder(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/folders`,
       { data: { path } },
     );
+    invalidateWorkspaceProjectCaches(projectId);
   } catch (error) {
     throw handleApiError(error, "delete workspace project folder");
   }
@@ -370,6 +418,7 @@ export async function moveWorkspaceProjectHosts(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/servers/folder`,
       { projectHostIds, folder },
     );
+    invalidateWorkspaceProjectCaches(projectId);
   } catch (error) {
     throw handleApiError(error, "move workspace project hosts");
   }
@@ -385,6 +434,7 @@ export async function updateWorkspaceProjectHost(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/servers/${projectHostId}`,
       input,
     );
+    invalidateWorkspaceProjectCaches(projectId);
     return response.data.server;
   } catch (error) {
     throw handleApiError(error, "update workspace project host");
@@ -400,6 +450,7 @@ export async function associateWorkspaceProjectHost(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/servers`,
       { hostId, alias: null },
     );
+    invalidateWorkspaceProjectCaches(projectId);
     return response.data.server;
   } catch (error) {
     throw handleApiError(error, "associate workspace project host");
@@ -414,6 +465,7 @@ export async function removeWorkspaceProjectHost(
     await authApi.delete(
       `/control-plane/projects/${encodeWorkspaceProjectId(projectId)}/servers/${projectHostId}`,
     );
+    invalidateWorkspaceProjectCaches(projectId);
   } catch (error) {
     throw handleApiError(error, "remove workspace project host");
   }

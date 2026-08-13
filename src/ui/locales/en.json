@@ -835,6 +835,7 @@
       "agentSessions": "Agent sessions",
       "agentChat": "Agent chat",
       "agentFloat": "Open floating Agent",
+      "agentFloatDesktop": "Open desktop floating Agent",
       "agentFloatMinimize": "Minimize floating Agent",
       "agentFloatHide": "Hide floating Agent",
       "agentFloatRestore": "Restore floating Agent",

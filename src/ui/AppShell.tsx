@@ -138,6 +138,8 @@ import {
   deleteSSHHost,
   getActiveSessions,
   getUserPreferences,
+  invalidateActiveSessionsCache,
+  invalidateOpenTabsCache,
   isElectron,
   type UserPreferences,
   type OpenTabRecord,
@@ -177,6 +179,10 @@ import {
   renameWorkspaceProjectFolder,
   saveWorkspaceProjectFolder,
 } from "@/api/workspace-api";
+import {
+  createActiveSessionByTabInstance,
+  shouldRestoreSavedTab,
+} from "@/shell/tab-restore";
 
 function buildHostTree(
   hosts: SSHHostWithStatus[],
@@ -1114,86 +1120,96 @@ function AppShellContent({
 
         if (!Array.isArray(savedTabs) || savedTabs.length === 0) return;
 
-        const sessionByInstanceId = new Map(
-          (Array.isArray(activeSessions) ? activeSessions : [])
-            .filter((s) => s.tabInstanceId != null)
-            .map((s) => [s.tabInstanceId, s]),
-        );
+        const sessionByInstanceId =
+          createActiveSessionByTabInstance(activeSessions);
+        const shouldRestoreRegularTabs =
+          userPrefs.reopenTabsOnLogin &&
+          !tabs.some((t) => PERSISTENT_TAB_TYPES.includes(t.type));
+        const restoredTabs: Tab[] = [];
+        const backgroundRecords: OpenTabRecord[] = [];
 
-        if (userPrefs.reopenTabsOnLogin) {
-          const hasPersistentTabs = tabs.some((t) =>
-            PERSISTENT_TAB_TYPES.includes(t.type),
-          );
-          if (!hasPersistentTabs) {
-            const restoredTabs: Tab[] = [];
-            for (const saved of savedTabs as OpenTabRecord[]) {
-              const host = saved.hostId
-                ? allHosts.find((h) => h.id === String(saved.hostId))
-                : undefined;
-              const hostlessTypes: TabType[] = ["dashboard", "tunnel"];
-              if (!host && !hostlessTypes.includes(saved.tabType as TabType))
-                continue;
-
-              if (host) {
-                if (saved.tabType === "terminal" && !host.enableSsh) continue;
-                if (saved.tabType === "rdp" && !host.enableRdp) continue;
-                if (saved.tabType === "vnc" && !host.enableVnc) continue;
-                if (saved.tabType === "telnet" && !host.enableTelnet) continue;
-              }
-
-              // Singleton tabs use their type as the stable ID; host-bound tabs get a unique ID
-              const tabId = host
-                ? `${host.name}-${saved.tabType}-${Date.now()}-${saved.tabOrder}`
-                : saved.id;
-              const liveSession = sessionByInstanceId.get(saved.id);
-              const restoredSessionId =
-                liveSession?.sessionId ?? saved.backendSessionId ?? null;
-
-              const isCustomLabel =
-                host &&
-                saved.label !== host.name &&
-                !/^.+ \(\d+\)$/.test(saved.label);
-
-              restoredTabs.push({
-                id: tabId,
-                instanceId: saved.id,
-                type: saved.tabType as TabType,
-                label: saved.label,
-                customLabel: isCustomLabel ? saved.label : undefined,
-                host,
-                openedAt: new Date(saved.createdAt).getTime(),
-                restoredSessionId,
-                sessionPinned:
-                  liveSession?.sessionPinned ?? saved.sessionPinned ?? false,
-                sessionManagedTmux:
-                  liveSession?.sessionManagedTmux ??
-                  Boolean(saved.sessionPinned && saved.tmuxSessionName),
-                persistentSessionId: restoredSessionId,
-                persistentTmuxSessionName:
-                  liveSession?.tmuxSessionName ?? saved.tmuxSessionName ?? null,
-                terminalRef: SESSION_TAB_TYPES.includes(
-                  saved.tabType as TabType,
-                )
-                  ? createRef()
-                  : undefined,
-              });
-            }
-
-            if (restoredTabs.length > 0) {
-              setTabs((prev) => {
-                const existingIds = new Set(prev.map((t) => t.id));
-                const newTabs = restoredTabs.filter(
-                  (t) => !existingIds.has(t.id),
-                );
-                return newTabs.length > 0 ? [...prev, ...newTabs] : prev;
-              });
-              setActiveTabId(restoredTabs[0].id);
-            }
-            // Restored tabs are in the tab bar, not in background records
+        for (const saved of savedTabs as OpenTabRecord[]) {
+          const liveSession = sessionByInstanceId.get(saved.id);
+          if (
+            !shouldRestoreSavedTab(saved, liveSession, shouldRestoreRegularTabs)
+          ) {
+            backgroundRecords.push(saved);
+            continue;
           }
-        } else {
-          // Not restoring to tab bar — keep as background records for ConnectionsPanel
-          setBackgroundTabRecords(savedTabs as OpenTabRecord[]);
+
+          const host = saved.hostId
+            ? allHosts.find((h) => h.id === String(saved.hostId))
+            : undefined;
+          const hostlessTypes: TabType[] = ["dashboard", "tunnel"];
+          if (!host && !hostlessTypes.includes(saved.tabType as TabType)) {
+            backgroundRecords.push(saved);
+            continue;
+          }
+
+          if (host) {
+            if (saved.tabType === "terminal" && !host.enableSsh) {
+              backgroundRecords.push(saved);
+              continue;
+            }
+            if (saved.tabType === "rdp" && !host.enableRdp) {
+              backgroundRecords.push(saved);
+              continue;
+            }
+            if (saved.tabType === "vnc" && !host.enableVnc) {
+              backgroundRecords.push(saved);
+              continue;
+            }
+            if (saved.tabType === "telnet" && !host.enableTelnet) {
+              backgroundRecords.push(saved);
+              continue;
+            }
+          }
+
+          // Singleton tabs use their type as the stable ID; host-bound tabs get a unique ID
+          const tabId = host
+            ? `${host.name}-${saved.tabType}-${Date.now()}-${saved.tabOrder}`
+            : saved.id;
+          const restoredSessionId =
+            liveSession?.sessionId ?? saved.backendSessionId ?? null;
+
+          const isCustomLabel =
+            host &&
+            saved.label !== host.name &&
+            !/^.+ \(\d+\)$/.test(saved.label);
+
+          restoredTabs.push({
+            id: tabId,
+            instanceId: saved.id,
+            type: saved.tabType as TabType,
+            label: saved.label,
+            customLabel: isCustomLabel ? saved.label : undefined,
+            host,
+            openedAt: new Date(saved.createdAt).getTime(),
+            restoredSessionId,
+            sessionPinned:
+              liveSession?.sessionPinned ?? saved.sessionPinned ?? false,
+            sessionManagedTmux:
+              liveSession?.sessionManagedTmux ??
+              Boolean(saved.sessionPinned && saved.tmuxSessionName),
+            persistentSessionId: restoredSessionId,
+            persistentTmuxSessionName:
+              liveSession?.tmuxSessionName ?? saved.tmuxSessionName ?? null,
+            terminalRef: SESSION_TAB_TYPES.includes(saved.tabType as TabType)
+              ? createRef()
+              : undefined,
+          });
+        }
+
+        setBackgroundTabRecords(backgroundRecords);
+        if (restoredTabs.length > 0) {
+          setTabs((prev) => {
+            const existingInstanceIds = new Set(prev.map((t) => t.instanceId));
+            const newTabs = restoredTabs.filter(
+              (t) => !existingInstanceIds.has(t.instanceId),
+            );
+            return newTabs.length > 0 ? [...prev, ...newTabs] : prev;
+          });
+          setActiveTabId(restoredTabs[0].id);
         }
       } catch {
         // silently fail
@@ -1419,6 +1435,31 @@ function AppShellContent({
         agentSessionId,
         savedLabel: label ? `${label} · Agent` : `${host.name} · Agent`,
       });
+      if (isMobile) setSidebarOpen(false);
+    },
+    [isMobile, openTab, tabs],
+  );
+
+  const openPersistentSessionTab = useCallback(
+    (host: Host, session: ActiveSessionInfo) => {
+      const instanceId = session.tabInstanceId || session.sessionId;
+      const existing = tabs.find((tab) => tab.instanceId === instanceId);
+      if (existing) {
+        setActiveTabId(existing.id);
+        if (isMobile) setSidebarOpen(false);
+        return;
+      }
+      openTab(host, "terminal", {
+        instanceId,
+        restoredSessionId: session.sessionId,
+        savedLabel: session.hostName,
+        sessionPinned: session.sessionPinned,
+        sessionManagedTmux: session.sessionManagedTmux,
+        tmuxSessionName: session.tmuxSessionName,
+      });
+      setBackgroundTabRecords((previous) =>
+        previous.filter((record) => record.id !== instanceId),
+      );
       if (isMobile) setSidebarOpen(false);
     },
     [isMobile, openTab, tabs],
@@ -1903,6 +1944,12 @@ function AppShellContent({
             : tab,
         ),
       );
+      if (state.sessionPinned || state.sessionId) {
+        invalidateActiveSessionsCache();
+      }
+      if (state.sessionPinned) {
+        invalidateOpenTabsCache();
+      }
     },
     [],
   );
@@ -2725,6 +2772,7 @@ function AppShellContent({
                         saveQuickConnectHost,
                         handleSessionPersistenceChange,
                         openAgentSessionTab,
+                        openPersistentSessionTab,
                       ),
                       tabNode,
                       tab.id,

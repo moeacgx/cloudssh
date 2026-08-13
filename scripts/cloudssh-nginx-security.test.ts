@@ -65,6 +65,8 @@ describe.each(configurations)("%s Agent 入口安全约束", (filePath) => {
       "location ~ ^/panel-agent(/.*)?$ {",
     );
     expect(location).not.toBe("");
+    expect(location).toContain("client_max_body_size 64m;");
+    expect(location).toContain("client_body_timeout 300s;");
     expect(location).toContain("proxy_pass http://127.0.0.1:30001;");
     expect(location).toContain(
       "proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;",

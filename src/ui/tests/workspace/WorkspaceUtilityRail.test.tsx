@@ -52,24 +52,85 @@ describe("WorkspaceUtilityRail", () => {
     localStorage.clear();
   });
 
-  it("keeps the desktop Agent mounted after collapsing the side rail", () => {
+  it("opens the desktop Agent as a draggable floating window", async () => {
     renderRail();
 
+    const floatButton = screen.getByRole("button", {
+      name: "workspace.utility.agentFloatDesktop",
+    });
+    expect(floatButton.className).toContain("fixed");
+    expect(floatButton.className).toContain("backdrop-blur-2xl");
+
+    fireEvent.pointerDown(floatButton, {
+      clientX: 760,
+      clientY: 220,
+      button: 0,
+    });
+    fireEvent.pointerMove(window, { clientX: 520, clientY: 260 });
+    fireEvent.pointerUp(window);
+    expect(Number.parseInt(floatButton.style.left, 10)).toBeLessThan(760);
+
+    fireEvent.pointerDown(floatButton, {
+      clientX: 520,
+      clientY: 260,
+      button: 0,
+    });
+    fireEvent.pointerMove(window, { clientX: 4000, clientY: 260 });
+    fireEvent.pointerUp(window);
+    expect(Number.parseInt(floatButton.style.left, 10)).toBe(
+      window.innerWidth - 112,
+    );
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    fireEvent.click(floatButton);
+
+    const dialog = screen.getByRole("dialog", {
+      name: "workspace.utility.agentChat",
+    });
+    expect(dialog.className).toContain("fixed");
+    expect(dialog.className).toContain("bg-white/30");
+    expect(dialog.className).toContain("backdrop-blur-2xl");
+    expect(screen.getByTestId("panel-agent-panel").textContent).toContain(
+      "embedded agent panel compact",
+    );
     fireEvent.click(
-      screen.getByRole("button", { name: "workspace.utility.agentChat" }),
+      screen.getByRole("button", { name: "panelAgent.settings" }),
+    );
+    expect(screen.getByTestId("panel-agent-panel").textContent).toContain(
+      "action:settings",
     );
     const draft = screen.getByLabelText("mock Agent draft");
     fireEvent.change(draft, { target: { value: "desktop context" } });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "workspace.utility.collapse" }),
-    );
+    const dragHandle = screen
+      .getByTestId("desktop-agent-floating-panel")
+      .querySelector("[data-desktop-agent-drag-handle='true']")!;
+    fireEvent.pointerDown(dragHandle, {
+      clientX: 760,
+      clientY: 220,
+      button: 0,
+    });
+    expect(document.body.style.userSelect).toBe("none");
+    expect(document.documentElement.style.userSelect).toBe("none");
+    fireEvent.pointerMove(window, { clientX: 720, clientY: 240 });
+    fireEvent.pointerUp(window);
+    expect(document.body.style.userSelect).toBe("");
+    expect(document.documentElement.style.userSelect).toBe("");
+
+    fireEvent.pointerDown(screen.getByTestId("desktop-agent-outside-dismiss"));
     expect(
-      screen.getByTestId("panel-agent-panel").closest("[hidden]"),
-    ).not.toBeNull();
+      screen.queryByRole("dialog", { name: "workspace.utility.agentChat" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "workspace.utility.agentFloatDesktop",
+      }),
+    ).toBeTruthy();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "workspace.utility.agentChat" }),
+      screen.getByRole("button", {
+        name: "workspace.utility.agentFloatDesktop",
+      }),
     );
     expect(screen.getByLabelText("mock Agent draft")).toHaveProperty(
       "value",
