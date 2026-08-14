@@ -12,6 +12,15 @@ import {
 } from "./session-admin.js";
 import type { AgentPrincipal, AgentSessionState } from "./types.js";
 
+const FETCH_FORBIDDEN_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
+  87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137,
+  139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+  540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723,
+  2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697,
+  10080,
+]);
+
 describe("网页 Agent 会话关闭", () => {
   let sqlite: Database.Database;
   let server: Server | undefined;
@@ -52,13 +61,19 @@ describe("网页 Agent 会话关闭", () => {
     audit = vi.fn(async (_entry: AuditLogParams) => undefined);
   });
 
-  afterEach(async () => {
-    if (server) {
-      await new Promise<void>((resolve, reject) =>
-        server!.close((error) => (error ? reject(error) : resolve())),
-      );
-      server = undefined;
+  async function closeServer() {
+    if (!server) {
+      return;
     }
+
+    await new Promise<void>((resolve, reject) =>
+      server!.close((error) => (error ? reject(error) : resolve())),
+    );
+    server = undefined;
+  }
+
+  afterEach(async () => {
+    await closeServer();
     sqlite.close();
     vi.restoreAllMocks();
   });
@@ -119,13 +134,21 @@ describe("网页 Agent 会话关闭", () => {
         audit,
       }),
     );
-    await new Promise<void>((resolve) => {
-      server = app.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    if (!address || typeof address === "string")
-      throw new Error("listen failed");
-    return `http://127.0.0.1:${address.port}/agent/admin/v1`;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise<void>((resolve) => {
+        server = app.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("listen failed");
+      }
+      if (!FETCH_FORBIDDEN_PORTS.has(address.port)) {
+        return `http://127.0.0.1:${address.port}/agent/admin/v1`;
+      }
+      await closeServer();
+    }
+
+    throw new Error("listen returned fetch-forbidden ports repeatedly");
   }
 
   async function closeRequest(baseUrl: string, sessionId: string) {

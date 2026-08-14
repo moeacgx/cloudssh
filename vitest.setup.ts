@@ -1,4 +1,4 @@
-import { afterAll, afterEach, vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 if (typeof window !== "undefined" && !window.matchMedia) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -13,21 +13,6 @@ if (typeof window !== "undefined" && !window.matchMedia) {
   }));
 }
 
-async function collectNativeTestHandles() {
-  const gc = (globalThis as { gc?: () => void }).gc;
-  if (!gc) {
-    return;
-  }
-
-  for (let i = 0; i < 4; i += 1) {
-    gc();
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-}
-
-afterEach(async () => {
+afterEach(() => {
   vi.restoreAllMocks();
-  await collectNativeTestHandles();
 });
-
-afterAll(collectNativeTestHandles);

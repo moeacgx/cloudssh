@@ -28,7 +28,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
     "type-check": "tsc --noEmit",
-    "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --execArgv=--expose-gc",
+    "test": "vitest run",
     "test:skill": "node --test scripts/cloudssh-skill.test.mjs",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
