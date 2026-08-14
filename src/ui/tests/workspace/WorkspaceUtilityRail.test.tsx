@@ -60,6 +60,9 @@ describe("WorkspaceUtilityRail", () => {
     });
     expect(floatButton.className).toContain("fixed");
     expect(floatButton.className).toContain("backdrop-blur-2xl");
+    expect(Number.parseInt(floatButton.style.left, 10)).toBe(
+      window.innerWidth - 104,
+    );
 
     fireEvent.pointerDown(floatButton, {
       clientX: 760,
@@ -78,7 +81,7 @@ describe("WorkspaceUtilityRail", () => {
     fireEvent.pointerMove(window, { clientX: 4000, clientY: 260 });
     fireEvent.pointerUp(window);
     expect(Number.parseInt(floatButton.style.left, 10)).toBe(
-      window.innerWidth - 112,
+      window.innerWidth - 104,
     );
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));

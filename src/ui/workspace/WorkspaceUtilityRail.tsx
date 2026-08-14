@@ -63,7 +63,7 @@ const DESKTOP_AGENT_POSITION_KEY = "termix_desktopAgentPosition";
 const MOBILE_AGENT_MIN_Y = 92;
 const MOBILE_AGENT_BOTTOM_GUARD = 156;
 const MOBILE_AGENT_PANEL_BOTTOM_GUARD = 104;
-const DESKTOP_AGENT_DOCK_SIZE: DesktopAgentSize = { width: 112, height: 48 };
+const DESKTOP_AGENT_DOCK_SIZE: DesktopAgentSize = { width: 104, height: 48 };
 const DESKTOP_AGENT_HIDDEN_SIZE: DesktopAgentSize = { width: 44, height: 44 };
 const DESKTOP_AGENT_PANEL_MARGIN = 16;
 
@@ -193,7 +193,7 @@ function defaultDesktopAgentPosition(): DesktopAgentPosition {
   const dock = desktopAgentDockSize();
   return clampDesktopAgentDockPosition(
     {
-      x: width - dock.width - 24,
+      x: width - dock.width,
       y: Math.max(24, Math.round(height * 0.16)),
     },
     width,
