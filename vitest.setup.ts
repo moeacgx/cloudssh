@@ -1,4 +1,4 @@
-import { afterEach, vi } from "vitest";
+import { afterAll, afterEach, vi } from "vitest";
 
 if (typeof window !== "undefined" && !window.matchMedia) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -16,3 +16,10 @@ if (typeof window !== "undefined" && !window.matchMedia) {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+function collectNativeTestHandles() {
+  (globalThis as { gc?: () => void }).gc?.();
+}
+
+afterEach(collectNativeTestHandles);
+afterAll(collectNativeTestHandles);
