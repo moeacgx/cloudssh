@@ -13,13 +13,21 @@ if (typeof window !== "undefined" && !window.matchMedia) {
   }));
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+async function collectNativeTestHandles() {
+  const gc = (globalThis as { gc?: () => void }).gc;
+  if (!gc) {
+    return;
+  }
 
-function collectNativeTestHandles() {
-  (globalThis as { gc?: () => void }).gc?.();
+  for (let i = 0; i < 4; i += 1) {
+    gc();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
 }
 
-afterEach(collectNativeTestHandles);
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await collectNativeTestHandles();
+});
+
 afterAll(collectNativeTestHandles);
