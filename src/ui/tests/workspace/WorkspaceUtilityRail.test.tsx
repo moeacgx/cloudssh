@@ -52,6 +52,39 @@ describe("WorkspaceUtilityRail", () => {
     localStorage.clear();
   });
 
+  it("migrates legacy desktop Agent positions back to the right edge", () => {
+    localStorage.setItem(
+      "termix_desktopAgentPosition",
+      JSON.stringify({ x: 640, y: 160 }),
+    );
+
+    renderRail();
+
+    const floatButton = screen.getByRole("button", {
+      name: "workspace.utility.agentFloatDesktop",
+    });
+    expect(Number.parseInt(floatButton.style.left, 10)).toBe(
+      window.innerWidth - 104,
+    );
+    expect(
+      JSON.parse(localStorage.getItem("termix_desktopAgentPosition") ?? "{}"),
+    ).toMatchObject({ version: 2, x: window.innerWidth - 104 });
+  });
+
+  it("keeps versioned desktop Agent positions", () => {
+    localStorage.setItem(
+      "termix_desktopAgentPosition",
+      JSON.stringify({ version: 2, x: 320, y: 160 }),
+    );
+
+    renderRail();
+
+    const floatButton = screen.getByRole("button", {
+      name: "workspace.utility.agentFloatDesktop",
+    });
+    expect(Number.parseInt(floatButton.style.left, 10)).toBe(320);
+  });
+
   it("opens the desktop Agent as a draggable floating window", async () => {
     renderRail();
 

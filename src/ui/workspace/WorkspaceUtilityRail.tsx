@@ -60,6 +60,7 @@ type DesktopAgentSize = {
 
 const MOBILE_AGENT_POSITION_KEY = "termix_mobileAgentPosition";
 const DESKTOP_AGENT_POSITION_KEY = "termix_desktopAgentPosition";
+const DESKTOP_AGENT_POSITION_VERSION = 2;
 const MOBILE_AGENT_MIN_Y = 92;
 const MOBILE_AGENT_BOTTOM_GUARD = 156;
 const MOBILE_AGENT_PANEL_BOTTOM_GUARD = 104;
@@ -207,7 +208,12 @@ function storedDesktopAgentPosition(): DesktopAgentPosition {
   if (!saved) return fallback;
 
   try {
-    const parsed = JSON.parse(saved) as Partial<DesktopAgentPosition>;
+    const parsed = JSON.parse(saved) as Partial<DesktopAgentPosition> & {
+      version?: number;
+    };
+    if (parsed.version !== DESKTOP_AGENT_POSITION_VERSION) {
+      return fallback;
+    }
     return clampDesktopAgentDockPosition({
       x: Number(parsed.x) || fallback.x,
       y: Number(parsed.y) || fallback.y,
@@ -342,7 +348,10 @@ export function WorkspaceUtilityRail({
   useEffect(() => {
     writeLocalStorage(
       DESKTOP_AGENT_POSITION_KEY,
-      JSON.stringify(desktopAgentPosition),
+      JSON.stringify({
+        ...desktopAgentPosition,
+        version: DESKTOP_AGENT_POSITION_VERSION,
+      }),
     );
   }, [desktopAgentPosition]);
 
