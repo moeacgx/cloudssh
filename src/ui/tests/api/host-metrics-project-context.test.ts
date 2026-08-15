@@ -7,7 +7,7 @@ const statsApi = vi.hoisted(() => ({
 
 vi.mock("@/main-axios", () => ({
   statsApi,
-  handleApiError: (error: unknown) => error,
+  handleApiError: vi.fn(),
   getRemoteStatsApi: vi.fn(),
   isElectron: () => false,
 }));
@@ -22,6 +22,7 @@ import {
   managerPost,
 } from "@/api/host-metrics-api";
 import {
+  getAllServerStatuses,
   getServerMetricsById,
   getServerStatusById,
   startMetricsPolling,
@@ -57,6 +58,24 @@ describe("host metrics project context", () => {
       projectHostId: 11,
       totpSessionId: "totp-1",
     });
+  });
+  it("keeps background status retries out of the global health toast path", async () => {
+    vi.useFakeTimers();
+    const timeoutError = Object.assign(new Error("status timeout"), {
+      isAxiosError: true,
+      code: "ETIMEDOUT",
+    });
+    statsApi.get.mockRejectedValue(timeoutError);
+
+    const resultPromise = getAllServerStatuses();
+    await vi.runAllTimersAsync();
+    await expect(resultPromise).resolves.toEqual({});
+
+    expect(statsApi.get).toHaveBeenCalledTimes(3);
+    expect(
+      statsApi.get.mock.calls.every(([, config]) => config.__silentRetry),
+    ).toBe(true);
+    vi.useRealTimers();
   });
 
   it("sends projectHostId for history and manager operations", async () => {

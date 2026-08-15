@@ -8,18 +8,20 @@ const api = vi.hoisted(() => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+  getCachedSSHHosts: vi.fn(),
   invalidate: vi.fn(),
+  getAllServerStatuses: vi.fn(),
 }));
 
 vi.mock("@/main-axios", () => ({
   authApi: api.authApi,
   sshHostApi: api.sshHostApi,
-  getAllServerStatuses: vi.fn(),
+  getAllServerStatuses: api.getAllServerStatuses,
   handleApiError: (error: unknown) => error,
 }));
 
 vi.mock("@/lib/hosts-request-cache", () => ({
-  getCachedSSHHosts: vi.fn(),
+  getCachedSSHHosts: api.getCachedSSHHosts,
   invalidateHostsAndStatusCaches: api.invalidate,
 }));
 
@@ -27,6 +29,7 @@ import {
   bulkImportSSHHosts,
   createSSHHost,
   exportAllSSHHosts,
+  getSSHHosts,
   updateSSHHost,
 } from "@/api/ssh-host-management-api";
 
@@ -38,9 +41,32 @@ const hostData = {
   authType: "none",
 } as never;
 
+describe("project-aware host loading", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getCachedSSHHosts.mockResolvedValue([{ id: 7, name: "host-7" }]);
+    api.getAllServerStatuses.mockResolvedValue({
+      7: { status: "online" },
+    });
+  });
+
+  it("loads host metadata without waiting for status polling when requested", async () => {
+    await expect(getSSHHosts({ includeStatus: false })).resolves.toEqual([
+      { id: 7, name: "host-7", status: "unknown" },
+    ]);
+    expect(api.getAllServerStatuses).not.toHaveBeenCalled();
+  });
+
+  it("keeps status loading opt-in for status-aware surfaces", async () => {
+    await expect(getSSHHosts({ includeStatus: true })).resolves.toEqual([
+      { id: 7, name: "host-7", status: "online" },
+    ]);
+    expect(api.getAllServerStatuses).toHaveBeenCalledOnce();
+  });
+});
+
 describe("project-aware host creation", () => {
   beforeEach(() => vi.clearAllMocks());
-
   it("creates and associates a host with the selected project atomically", async () => {
     const host = { id: 41, ...hostData };
     api.sshHostApi.post.mockResolvedValue({ data: host });

@@ -36,6 +36,11 @@ vi.mock("@/workspace/WorkspaceContext", () => ({
 }));
 vi.mock("@/main-axios", () => mainAxios);
 vi.mock("@/api/workspace-api", () => workspaceApi);
+vi.mock("@/lib/ServerStatusContext", () => ({
+  useServerStatus: () => ({
+    statuses: new Map([[7, { status: "online" }]]),
+  }),
+}));
 vi.mock("@/workspace/ProjectSettingsDialog", () => ({
   ProjectSettingsDialog: ({ open }: { open: boolean }) =>
     open ? <div role="dialog">project-settings-dialog</div> : null,

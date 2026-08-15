@@ -912,7 +912,7 @@ function AppShellContent({
       }
       try {
         const [raw, projectServers, folders] = await Promise.all([
-          getSSHHosts(),
+          getSSHHosts({ includeStatus: false }),
           getWorkspaceProjectServers(requestedProjectId),
           getWorkspaceProjectFolders(requestedProjectId),
         ]);
@@ -2326,7 +2326,9 @@ function AppShellContent({
                   !hostlessTypes.includes(record.tabType as TabType)
                 ) {
                   try {
-                    const latestHosts = await getSSHHosts();
+                    const latestHosts = await getSSHHosts({
+                      includeStatus: false,
+                    });
                     const savedHost = latestHosts.find(
                       (item) => String(item.id) === String(record.hostId),
                     );

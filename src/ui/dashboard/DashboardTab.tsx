@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
@@ -1227,7 +1227,7 @@ export function DashboardTab({
   isVisible?: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const { initialLoadComplete } = useServerStatus();
+  const { initialLoadComplete, statuses } = useServerStatus();
   const statusLoading = !initialLoadComplete;
 
   const [slots, setSlots] = useState<CardSlot[]>(() => {
@@ -1302,7 +1302,17 @@ export function DashboardTab({
     }
   }, [mainWidthPct]);
 
-  const [hosts, setHosts] = useState<Host[]>([]);
+  const [hostConfigs, setHostConfigs] = useState<Host[]>([]);
+  const hosts = useMemo(
+    () =>
+      hostConfigs.map((host) => {
+        const liveStatus = statuses.get(Number(host.id))?.status;
+        if (!liveStatus) return host;
+        const online = liveStatus === "online";
+        return online === host.online ? host : { ...host, online };
+      }),
+    [hostConfigs, statuses],
+  );
   const [isAdmin, setIsAdmin] = useState(false);
   const [uptimeFormatted, setUptimeFormatted] = useState("");
   const [versionText, setVersionText] = useState("");
@@ -1375,10 +1385,10 @@ export function DashboardTab({
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      const raw = await getSSHHosts().catch(() => []);
+      const raw = await getSSHHosts({ includeStatus: false }).catch(() => []);
       const mapped = raw.map(sshHostToHost);
       const statusHosts = mapped.filter(isStatusCheckEnabled);
-      if (mounted) setHosts(mapped);
+      if (mounted) setHostConfigs(mapped);
       if (isVisible) {
         fetchMetrics(statusHosts).catch(() => {});
       }
@@ -1397,7 +1407,7 @@ export function DashboardTab({
     getUptime()
       .then((u) => setUptimeFormatted(u.formatted))
       .catch(() => {});
-    getVersionInfo()
+    getVersionInfo(false)
       .then((info) => {
         setVersionText(info.localVersion ?? "");
         setVersionStatus(info.status ?? "up_to_date");
@@ -1445,10 +1455,10 @@ export function DashboardTab({
 
     const metricsInterval = setInterval(async () => {
       if (document.visibilityState === "hidden") return;
-      const raw = await getSSHHosts().catch(() => []);
+      const raw = await getSSHHosts({ includeStatus: false }).catch(() => []);
       const mapped = raw.map(sshHostToHost);
       const statusHosts = mapped.filter(isStatusCheckEnabled);
-      if (mounted) setHosts(mapped);
+      if (mounted) setHostConfigs(mapped);
       fetchMetrics(statusHosts).catch(() => {});
     }, 30000);
 

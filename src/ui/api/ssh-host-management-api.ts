@@ -21,7 +21,7 @@ import {
 // ============================================================================
 
 export type GetSSHHostsOptions = {
-  /** When false, skip the status service call (host config only). Default true. */
+  /** When false, skip the separate status service call. Default true. */
   includeStatus?: boolean;
 };
 

@@ -718,7 +718,7 @@ export function UserProfilePanel({
     listWebAuthnCredentials()
       .then(({ credentials }) => setPasskeys(credentials ?? []))
       .catch(() => {});
-    getVersionInfo()
+    getVersionInfo(false)
       .then((info) => {
         setVersion(info.localVersion);
         setVersionStatus(info.status ?? "up_to_date");

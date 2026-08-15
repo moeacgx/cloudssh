@@ -199,4 +199,10 @@ describe("UserProfilePanel terminal theme", () => {
       ),
     ).toBe(true);
   });
+  it("reads the displayed version locally without a remote release check", async () => {
+    render(<UserProfilePanel />);
+
+    await waitFor(() => expect(mainAxios.getVersionInfo).toHaveBeenCalled());
+    expect(mainAxios.getVersionInfo).toHaveBeenCalledWith(false);
+  });
 });

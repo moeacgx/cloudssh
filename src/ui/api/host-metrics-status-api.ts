@@ -53,12 +53,10 @@ type ConnectErrorResponse = {
 /**
  * Progressive retry schedule for the background /status poll.
  *
- * Each entry describes one attempt's per-request timeout and the pause to
- * observe before the next attempt. The pause on the last entry is `null`:
- * after that final failure we surface the network error, which flows
- * through the response interceptor + dbHealthMonitor (which decides
- * between the degraded toast and the full-outage overlay based on whether
- * any WebSocket is still alive).
+ * Host status is supplementary metadata, not proof that the panel backend or
+ * an existing SSH WebSocket is unavailable. Every attempt stays silent in
+ * the global HTTP health monitor; callers receive an empty status set after
+ * the bounded retry sequence and keep rendering the host list.
  *
  * Sequence: try(2s) -> wait 3s -> try(5s) -> wait 5s -> try(8s) -> fail.
  * Worst-case wall-clock = 23s, which fits inside the 30s ServerStatusContext
@@ -103,15 +101,14 @@ export async function getAllServerStatuses(): Promise<
 
     for (let i = 0; i < STATUS_RETRY_SCHEDULE.length; i++) {
       const { timeoutMs, pauseAfterMs } = STATUS_RETRY_SCHEDULE[i];
-      const isFinalAttempt = i === STATUS_RETRY_SCHEDULE.length - 1;
 
       try {
         const response = await statsApi.get("/status", {
           timeout: timeoutMs,
-          // Silence per-attempt interceptor logging & health-monitor side
-          // effects on all attempts except the final one, so background
-          // blips don't look like real outages.
-          __silentRetry: !isFinalAttempt,
+          // Host status is a background/secondary signal. A failed poll must
+          // not produce the global "server connection lost" toast while the
+          // panel and SSH terminal remain usable.
+          __silentRetry: true,
         } as AxiosRequestConfig & { __silentRetry?: boolean });
         localStatuses = response.data || {};
         lastError = null;

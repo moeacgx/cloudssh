@@ -18,6 +18,7 @@ import { sshHostToHost } from "@/sidebar/HostManagerData";
 import type { Host, TabType } from "@/types/ui-types";
 import { usePageVisibleInterval } from "@/hooks/use-page-visible-interval";
 import { hasPendingHostNetworkInfo } from "@/lib/host-network-info";
+import { useServerStatus } from "@/lib/ServerStatusContext";
 import { useWorkspace } from "@/workspace/WorkspaceContext";
 import {
   getWorkspaceProjectOverview,
@@ -38,6 +39,7 @@ export function ProjectOverview({
 }) {
   const { t, i18n } = useTranslation();
   const { activeProject, refreshProjects } = useWorkspace();
+  const { statuses } = useServerStatus();
   const [hosts, setHosts] = useState<SSHHostWithStatus[]>([]);
   const [sessions, setSessions] = useState<ActiveSessionInfo[]>([]);
   const [activity, setActivity] = useState<AgentActivity[]>([]);
@@ -57,7 +59,7 @@ export function ProjectOverview({
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      getSSHHosts(),
+      getSSHHosts({ includeStatus: false }),
       getWorkspaceProjectServers(activeProject.id),
       getActiveSessions().catch(() => []),
       getWorkspaceProjectOverview(activeProject.id).catch(() => ({
@@ -124,7 +126,9 @@ export function ProjectOverview({
     };
   }, [activeProject.id, networkInfoRefreshVersion]);
 
-  const online = hosts.filter((host) => host.status === "online").length;
+  const online = hosts.filter(
+    (host) => statuses.get(Number(host.id))?.status === "online",
+  ).length;
   const pinned = useMemo(
     () => [...hosts].sort((a, b) => Number(b.pin) - Number(a.pin)).slice(0, 8),
     [hosts],
@@ -517,7 +521,7 @@ export function ProjectOverview({
                     onClick={() => onOpenTab(sshHostToHost(host), "terminal")}
                   >
                     <span
-                      className={`size-2 rounded-full ${host.status === "online" ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
+                      className={`size-2 rounded-full ${statuses.get(Number(host.id))?.status === "online" ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium">
