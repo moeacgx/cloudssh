@@ -58,7 +58,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 1
@@ -67,12 +67,12 @@ jobs:
         run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@v4.2.0
         with:
           platforms: linux/amd64,linux/arm64
 
       - name: Setup Docker Buildx
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v2
 
       - name: Determine tags
         id: tags
@@ -104,7 +104,7 @@ jobs:
 
       - name: Login to GHCR
         if: ${{ !inputs.dry_run }}
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
