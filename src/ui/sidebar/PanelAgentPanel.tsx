@@ -174,6 +174,7 @@ type PanelAgentUiMessage = PanelAgentChatMessage & {
 };
 type HighRiskCommandApproval = {
   targetId: string;
+  hostName: string;
   command: string;
 };
 
@@ -376,7 +377,7 @@ function explicitlyApprovesHighRiskCommand(content: string): boolean {
     return false;
   }
   return (
-    /(?:我)?(?:确认|授权|同意|允许)(?:继续|立即)?(?:执行|运行|删除|操作|上述|前述|刚才|该)/u.test(
+    /(?:我)?(?:确认|授权|同意|允许)(?:(?:在|于)[\s\S]{0,120})?(?:继续|立即)?(?:执行|运行|删除|操作|上述|前述|刚才|该)/u.test(
       normalized,
     ) ||
     /\b(?:i\s+)?(?:confirm|authorize|approve)\s+(?:the\s+)?(?:execution|command|operation|deletion|delete|run)\b/iu.test(
@@ -385,17 +386,42 @@ function explicitlyApprovesHighRiskCommand(content: string): boolean {
   );
 }
 
-function isDestructiveCommand(command: string): boolean {
+function approvedHighRiskCommandKeys(
+  content: string,
+  pending: Map<string, HighRiskCommandApproval>,
+): string[] {
+  if (!explicitlyApprovesHighRiskCommand(content)) return [];
+  const entries = [...pending.entries()];
+  if (entries.length === 1) return [entries[0][0]];
+  const normalized = content.trim();
+  const matches = entries.filter(
+    ([, approval]) =>
+      normalized.includes(approval.command) &&
+      (normalized.includes(approval.targetId) ||
+        normalized.includes(approval.hostName)),
+  );
+  return matches.length === 1 ? [matches[0][0]] : [];
+}
+
+function isHighRiskCommand(command: string): boolean {
   const normalized = command.toLowerCase();
   return [
     /(?:^|[\s;&|()'"`])(?:sudo\s+)?(?:[\w./-]+\/)?(?:rm|rmdir|unlink|shred)(?:\s|$)/u,
     /\bfind\b[\s\S]*\s-delete(?:\s|$)/u,
-    /\b(?:docker|podman)\b[\s\S]*\b(?:rm|rmi|prune)\b/u,
-    /\bkubectl\b[\s\S]*\bdelete\b/u,
+    /\b(?:docker|podman)\b[\s\S]*\b(?:rm|rmi|prune|stop|restart|kill)\b/u,
+    /\bkubectl\b[\s\S]*\b(?:delete|apply|patch|replace|rollout\s+restart)\b/u,
     /\b(?:drop|truncate)\s+(?:database|table|schema)\b/u,
-    /\bdelete\s+from\b/u,
+    /\b(?:delete|insert|update)\s+(?:from|into)?\b/u,
+    /\b(?:psql|mysql|mariadb|sqlite3)\b[\s\S]*\b(?:insert|update|delete|drop|alter|truncate)\b/u,
     /\bmkfs(?:\.[a-z0-9_-]+)?\b/u,
     /\b(?:del|remove-item)\b/u,
+    /(?:^|[\s;&|()'"`])(?:sudo\s+)?(?:systemctl|service)\s+(?:restart|stop|start|reload|enable|disable|mask|unmask)\b/u,
+    /\b(?:reboot|shutdown|poweroff|halt)\b/u,
+    /\b(?:iptables|ip6tables|nft|ufw|firewall-cmd)\b/u,
+    /(?:^|[\s;&|()'"`])(?:sudo\s+)?(?:chmod|chown|chgrp|setfacl|useradd|usermod|userdel|passwd)\b/u,
+    /\b(?:apt(?:-get)?|dnf|yum|apk|pacman|zypper)\s+(?:dist-upgrade|full-upgrade|upgrade)\b/u,
+    /(?:^|[^0-9])>{1,2}\s*\S/u,
+    /\b(?:tee|sed\s+-i)\b/u,
   ].some((pattern) => pattern.test(normalized));
 }
 
@@ -683,11 +709,12 @@ export function PanelAgentPanel({
       });
     }
     const approvalKey = highRiskCommandKey(targetId, command);
-    const highRisk = declaredRisk === "high" || isDestructiveCommand(command);
+    const highRisk = declaredRisk === "high" || isHighRiskCommand(command);
     if (highRisk && !approvedHighRiskCommandsRef.current.delete(approvalKey)) {
       pendingHighRiskCommandsRef.current.set(approvalKey, {
         targetId,
         command,
+        hostName,
       });
       return toolResult(toolCall, {
         ok: false,
@@ -864,13 +891,14 @@ export function PanelAgentPanel({
       toast.error(t("panelAgent.instructionRequired"));
       return;
     }
-    approvedHighRiskCommandsRef.current.clear();
-    if (explicitlyApprovesHighRiskCommand(content)) {
-      approvedHighRiskCommandsRef.current = new Set(
-        pendingHighRiskCommandsRef.current.keys(),
-      );
+    const approvedKeys = approvedHighRiskCommandKeys(
+      content,
+      pendingHighRiskCommandsRef.current,
+    );
+    approvedHighRiskCommandsRef.current = new Set(approvedKeys);
+    for (const key of approvedKeys) {
+      pendingHighRiskCommandsRef.current.delete(key);
     }
-    pendingHighRiskCommandsRef.current.clear();
     const userMessage: PanelAgentUiMessage = {
       id: createMessageId(),
       role: "user",

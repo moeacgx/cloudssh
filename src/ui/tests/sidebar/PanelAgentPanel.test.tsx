@@ -713,6 +713,182 @@ describe("PanelAgentPanel", () => {
     expect(tab.terminalRef?.current?.sendInput).toHaveBeenCalledTimes(1);
   });
 
+  it("hard-blocks built-in high-risk mutations even when model risk is low", async () => {
+    const tab = terminalTab();
+    const commands = [
+      "systemctl restart nginx",
+      "chmod -R 777 /etc/nginx",
+      "iptables -F",
+      "printf changed > /etc/nginx/nginx.conf",
+      "apt-get dist-upgrade -y",
+      "psql app -c 'UPDATE users SET active = false'",
+    ];
+    panelAgentApi.sendPanelAgentChat
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "这些变更需要逐条确认。",
+          toolCalls: commands.map((command, index) => ({
+            id: `high-risk-${index}`,
+            name: "run_terminal_command" as const,
+            arguments: {
+              targetId: "tab-1",
+              command,
+              purpose: "test high-risk guard",
+              risk: "low",
+            },
+          })),
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "已拦截所有高风险变更。",
+          toolCalls: [],
+        },
+      });
+
+    render(<PanelAgentPanel terminalTabs={[tab]} activeTabId="tab-1" />);
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "执行变更" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("已拦截所有高风险变更。");
+    expect(await screen.findAllByText("panelAgent.toolBlocked")).toHaveLength(
+      commands.length,
+    );
+    expect(tab.terminalRef?.current?.sendInput).not.toHaveBeenCalled();
+  });
+
+  it("does not approve multiple pending commands with one generic confirmation", async () => {
+    const firstTab = terminalTab();
+    const secondTab = terminalTab({
+      id: "tab-2",
+      instanceId: "instance-2",
+      label: "db-1",
+      host: { ...firstTab.host!, id: "43", name: "db-1" },
+      terminalRef: {
+        current: {
+          isConnected: () => true,
+          sendInput: vi.fn(),
+          getRecentOutput: () => "db ready",
+          getSessionContext: () => ({
+            sessionId: "session-2",
+            hostId: "43",
+            connected: true,
+          }),
+        },
+      },
+    });
+    const calls = [
+      {
+        id: "delete-web",
+        name: "run_terminal_command" as const,
+        arguments: {
+          targetId: "tab-1",
+          command: "rm -rf /tmp/web-release",
+          purpose: "remove web release",
+          risk: "high",
+        },
+      },
+      {
+        id: "delete-db",
+        name: "run_terminal_command" as const,
+        arguments: {
+          targetId: "tab-2",
+          command: "rm -rf /tmp/db-release",
+          purpose: "remove db release",
+          risk: "high",
+        },
+      },
+    ];
+    panelAgentApi.sendPanelAgentChat
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "准备清理两台服务器。",
+          toolCalls: calls,
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "两条命令都已拦截。",
+          toolCalls: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "请明确目标。",
+          toolCalls: calls,
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "仍需明确授权。",
+          toolCalls: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "执行指定命令。",
+          toolCalls: calls,
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "只执行了第一条。",
+          toolCalls: [],
+        },
+      });
+
+    render(
+      <PanelAgentPanel
+        terminalTabs={[firstTab, secondTab]}
+        activeTabId="tab-1"
+      />,
+    );
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "清理两台服务器" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+    await screen.findByText("两条命令都已拦截。");
+
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "我确认执行上述高风险命令" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("仍需明确授权。", {}, { timeout: 3_000 });
+    expect(firstTab.terminalRef?.current?.sendInput).not.toHaveBeenCalled();
+    expect(secondTab.terminalRef?.current?.sendInput).not.toHaveBeenCalled();
+
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      {
+        target: {
+          value: "我确认在 web-1 执行 rm -rf /tmp/web-release",
+        },
+      },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+    await screen.findByText("只执行了第一条。", {}, { timeout: 3_000 });
+    expect(firstTab.terminalRef?.current?.sendInput).toHaveBeenCalledWith(
+      "rm -rf /tmp/web-release\r",
+    );
+    expect(secondTab.terminalRef?.current?.sendInput).not.toHaveBeenCalled();
+  });
+
   it("keeps a failed prompt retryable and replays it", async () => {
     panelAgentApi.sendPanelAgentChat
       .mockRejectedValueOnce(new Error("HTTP 404: Cloudflare block"))

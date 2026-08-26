@@ -136,6 +136,16 @@ test("Skill 按 hostId 去重跨项目入口且只在物理主机不同时询问
   );
 });
 
+test("Skill 对缺少合法 hostId 的重复匹配保持询问", async () => {
+  const skill = await readFile(skillDocument, "utf8");
+
+  assert.match(
+    skill,
+    /任何匹配(?:结果|条目)[\s\S]{0,220}(?:缺少|没有)[\s\S]{0,120}合法 `hostId`[\s\S]{0,220}询问/u,
+    "旧服务端缺少 hostId 时不能自动合并重复入口",
+  );
+});
+
 test("Skill 通过安装目录别名直接启动", async () => {
   const targetDirectory = await mkdtemp(
     path.join(os.tmpdir(), "cloudssh-skill-real-path-"),

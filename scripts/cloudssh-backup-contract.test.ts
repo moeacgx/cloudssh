@@ -1030,6 +1030,74 @@ describe.skipIf(!shell)("CloudSSH 备份脚本失败边界", () => {
     expect(result.status).toBe(44);
     expect(await readdir(output)).toEqual([]);
   });
+  it("新归档失败时保留 retention=1 的既有完整备份", async () => {
+    const harness = await createHarness();
+    const output = path.join(harness.directory, "backups");
+    await mkdir(output);
+    const archiveName = "cloudssh-state-20000101T000000Z.tar.gz";
+    await Promise.all([
+      writeFile(path.join(output, archiveName), "existing archive"),
+      writeFile(
+        path.join(output, `${archiveName}.manifest`),
+        "existing manifest",
+      ),
+      writeFile(
+        path.join(output, `${archiveName}.sha256`),
+        "existing checksum",
+      ),
+    ]);
+
+    const result = runShellScript(backupScript, [output], harness, {
+      CLOUDSSH_BACKUP_RETENTION_COUNT: "1",
+      MOCK_ARCHIVE_FAIL: "1",
+    });
+
+    expect(result.status).toBe(44);
+    expect(await readFile(path.join(output, archiveName), "utf8")).toBe(
+      "existing archive",
+    );
+    expect(
+      await readFile(path.join(output, `${archiveName}.manifest`), "utf8"),
+    ).toBe("existing manifest");
+    expect(
+      await readFile(path.join(output, `${archiveName}.sha256`), "utf8"),
+    ).toBe("existing checksum");
+  });
+
+  it("输出文件碰撞时不删除既有备份 sidecar", async () => {
+    const harness = await createHarness();
+    const output = path.join(harness.directory, "backups");
+    const fixedTimestamp = "20000101T000000Z";
+    await writeFile(
+      path.join(harness.bin, "date"),
+      `#!/bin/sh\nprintf '%s\\n' '${fixedTimestamp}'\n`,
+      { mode: 0o755 },
+    );
+    const archiveName = `cloudssh-state-${fixedTimestamp}.tar.gz`;
+    await mkdir(output);
+    await Promise.all([
+      writeFile(path.join(output, archiveName), "existing archive"),
+      writeFile(
+        path.join(output, `${archiveName}.manifest`),
+        "existing manifest",
+      ),
+      writeFile(
+        path.join(output, `${archiveName}.sha256`),
+        "existing checksum",
+      ),
+    ]);
+
+    const result = runShellScript(backupScript, [output], harness);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("输出文件已存在");
+    expect(
+      await readFile(path.join(output, `${archiveName}.manifest`), "utf8"),
+    ).toBe("existing manifest");
+    expect(
+      await readFile(path.join(output, `${archiveName}.sha256`), "utf8"),
+    ).toBe("existing checksum");
+  });
 
   it.each(["cloudssh", "guacd"])(
     "Compose 状态查询失败（%s）时中止且不启动归档容器",

@@ -21,6 +21,9 @@ BACKUP_GID="$(id -g)"
 BACKUP_RETENTION_COUNT="${CLOUDSSH_BACKUP_RETENTION_COUNT:-5}"
 MAX_BACKUP_RETENTION_COUNT=30
 BACKUP_PUBLISHED=0
+MANIFEST_PUBLISHED=0
+CHECKSUM_PUBLISHED=0
+ARCHIVE_PUBLISHED=0
 CLOUDSSH_CONTAINER_ID=""
 GUACD_CONTAINER_ID=""
 
@@ -75,10 +78,14 @@ cleanup_incomplete_backup() {
     "$OUTPUT_DIR/$PARTIAL_ARCHIVE" \
     "$OUTPUT_DIR/$PARTIAL_MANIFEST" \
     "$OUTPUT_DIR/$PARTIAL_CHECKSUM"
-  if [ "$BACKUP_PUBLISHED" -eq 0 ]; then
-    rm -f \
-      "$OUTPUT_DIR/$MANIFEST" \
-      "$OUTPUT_DIR/$CHECKSUM_FILE"
+  if [ "$MANIFEST_PUBLISHED" -eq 1 ]; then
+    rm -f "$OUTPUT_DIR/$MANIFEST"
+  fi
+  if [ "$CHECKSUM_PUBLISHED" -eq 1 ]; then
+    rm -f "$OUTPUT_DIR/$CHECKSUM_FILE"
+  fi
+  if [ "$ARCHIVE_PUBLISHED" -eq 1 ]; then
+    rm -f "$OUTPUT_DIR/$ARCHIVE"
   fi
 }
 
@@ -206,8 +213,6 @@ else
 fi
 
 mkdir -p "$OUTPUT_DIR"
-prune_backup_sets "$((BACKUP_RETENTION_COUNT - 1))"
-trap cleanup_incomplete_backup 0
 for output_name in \
   "$ARCHIVE" "$PARTIAL_ARCHIVE" \
   "$MANIFEST" "$PARTIAL_MANIFEST" \
@@ -215,7 +220,7 @@ for output_name in \
   [ ! -e "$OUTPUT_DIR/$output_name" ] ||
     fail "输出文件已存在，拒绝覆盖：$OUTPUT_DIR/$output_name"
 done
-
+trap cleanup_incomplete_backup 0
 docker run --rm --network none \
   -e "BACKUP_UID=${BACKUP_UID}" \
   -e "BACKUP_GID=${BACKUP_GID}" \
@@ -383,8 +388,11 @@ chmod 600 \
 
 # 先发布校验材料，归档名最后原子出现；消费者不会看到半套可用备份。
 mv "$OUTPUT_DIR/$PARTIAL_MANIFEST" "$OUTPUT_DIR/$MANIFEST"
+MANIFEST_PUBLISHED=1
 mv "$OUTPUT_DIR/$PARTIAL_CHECKSUM" "$OUTPUT_DIR/$CHECKSUM_FILE"
+CHECKSUM_PUBLISHED=1
 mv "$OUTPUT_DIR/$PARTIAL_ARCHIVE" "$OUTPUT_DIR/$ARCHIVE"
+ARCHIVE_PUBLISHED=1
 BACKUP_PUBLISHED=1
 prune_backup_sets "$BACKUP_RETENTION_COUNT"
 trap - 0
