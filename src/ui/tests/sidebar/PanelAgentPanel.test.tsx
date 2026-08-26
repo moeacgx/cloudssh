@@ -642,6 +642,77 @@ describe("PanelAgentPanel", () => {
     expect(panelAgentApi.sendPanelAgentChat).toHaveBeenCalledTimes(2);
   });
 
+  it("hard-blocks deletion until a one-time confirmation repeats the exact command", async () => {
+    const tab = terminalTab();
+    const deleteToolCall = {
+      id: "delete-call",
+      name: "run_terminal_command" as const,
+      arguments: {
+        targetId: "tab-1",
+        command: "rm -rf /tmp/old-release",
+        purpose: "remove old release",
+        risk: "low",
+      },
+    };
+    panelAgentApi.sendPanelAgentChat
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "准备删除旧发布目录。",
+          toolCalls: [deleteToolCall],
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "请确认高风险命令。",
+          toolCalls: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "收到确认，执行同一条命令。",
+          toolCalls: [{ ...deleteToolCall, id: "confirmed-delete-call" }],
+        },
+      })
+      .mockResolvedValueOnce({
+        message: {
+          role: "assistant",
+          content: "删除命令已执行。",
+          toolCalls: [],
+        },
+      });
+
+    render(<PanelAgentPanel terminalTabs={[tab]} activeTabId="tab-1" />);
+    await screen.findByPlaceholderText("panelAgent.chatPlaceholder");
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "删除旧发布目录" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await screen.findByText("panelAgent.highRiskApprovalRequired");
+    expect(tab.terminalRef?.current?.sendInput).not.toHaveBeenCalled();
+    await screen.findByText("请确认高风险命令。");
+
+    fireEvent.change(
+      screen.getByPlaceholderText("panelAgent.chatPlaceholder"),
+      { target: { value: "我确认执行上述高风险命令" } },
+    );
+    fireEvent.click(screen.getByText("panelAgent.send"));
+
+    await waitFor(
+      () =>
+        expect(tab.terminalRef?.current?.sendInput).toHaveBeenCalledWith(
+          "rm -rf /tmp/old-release\r",
+        ),
+      { timeout: 3_000 },
+    );
+    await screen.findByText("删除命令已执行。", {}, { timeout: 3_000 });
+    expect(tab.terminalRef?.current?.sendInput).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a failed prompt retryable and replays it", async () => {
     panelAgentApi.sendPanelAgentChat
       .mockRejectedValueOnce(new Error("HTTP 404: Cloudflare block"))

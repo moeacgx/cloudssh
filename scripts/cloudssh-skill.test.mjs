@@ -12,6 +12,7 @@ import {
   readdir,
   rm,
   symlink,
+  unlink,
   truncate,
   utimes,
   writeFile,
@@ -44,6 +45,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const skillScript = path.resolve("skills/cloudssh-agent/scripts/cloudssh.mjs");
+const skillDocument = path.resolve("skills/cloudssh-agent/SKILL.md");
 
 class MemorySecretStore {
   constructor(value) {
@@ -112,6 +114,50 @@ test("Skill 地址仅允许 HTTPS 和本机 HTTP", () => {
     "http://127.0.0.1:18081/agent/v1",
   );
   assert.throws(() => normalizeBaseUrl("http://203.0.113.10:18080"), /HTTPS/);
+});
+
+test("Skill 按 hostId 去重跨项目入口且只在物理主机不同时询问", async () => {
+  const skill = await readFile(skillDocument, "utf8");
+
+  assert.match(
+    skill,
+    /`hostId` 相同[\s\S]{0,300}(?:无需用户确认|直接继续执行)/u,
+    "同一物理主机的跨项目入口不得触发用户确认",
+  );
+  assert.match(
+    skill,
+    /已(?:经)?(?:选择|使用)[\s\S]{0,200}`serverId`[\s\S]{0,300}(?:数值)?最小的 `serverId`/u,
+    "Skill 必须定义可重复的项目入口选择顺序",
+  );
+  assert.match(
+    skill,
+    /只有[\s\S]{0,200}`hostId` 不同[\s\S]{0,200}询问/u,
+    "只有不同物理主机之间的歧义才应询问用户",
+  );
+});
+
+test("Skill 通过安装目录别名直接启动", async () => {
+  const targetDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "cloudssh-skill-real-path-"),
+  );
+  const aliasDirectory = `${targetDirectory}-alias`;
+  const targetScript = path.join(targetDirectory, "cloudssh.mjs");
+  const aliasScript = path.join(aliasDirectory, "cloudssh.mjs");
+  try {
+    await writeFile(targetScript, await readFile(skillScript));
+    await symlink(
+      targetDirectory,
+      aliasDirectory,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const { stdout } = await execFileAsync(process.execPath, [aliasScript, "help"]);
+
+    assert.match(stdout, /CloudSSH Skill CLI/);
+  } finally {
+    await unlink(aliasDirectory).catch(() => undefined);
+    await rm(targetDirectory, { recursive: true, force: true });
+  }
 });
 
 test("持续会话默认使用平台中转，固定会话兼容 tmux 默认值", () => {

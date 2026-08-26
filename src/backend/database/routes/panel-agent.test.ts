@@ -319,6 +319,12 @@ describe("Panel Agent routes", () => {
     expect(request.messages[2].content).toContain("nginx error");
     expect(request.messages[2].content).not.toContain("leaked");
     expect(request.messages[0].content).toContain("tmux send-keys");
+    expect(request.messages[0].content).toContain(
+      "HIGH_RISK_REQUIRES_CONFIRMATION",
+    );
+    expect(request.messages[0].content).toContain(
+      "repeat the exact same target, command",
+    );
   });
 
   it("allows contextual chat without selected SSH targets", async () => {

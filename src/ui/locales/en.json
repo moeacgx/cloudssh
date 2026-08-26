@@ -678,6 +678,7 @@
     "toolCompleted": "Tool completed",
     "toolFailed": "Tool failed",
     "toolBlocked": "Tool blocked",
+    "highRiskApprovalRequired": "Hard-blocked. Review the exact command, then reply ‘I confirm the command execution’. Approval is one-time and only applies to the same server and command.",
     "toolRoundLimit": "Stopped after the tool round limit. Send another message to continue.",
     "chatFailed": "Panel Agent chat failed",
     "chatStopped": "Panel Agent request stopped",

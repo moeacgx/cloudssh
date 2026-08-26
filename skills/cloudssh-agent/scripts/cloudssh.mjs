@@ -17,6 +17,7 @@ import {
   mkdir,
   open,
   readFile,
+  realpath,
   rename,
   stat,
   unlink,
@@ -24,7 +25,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SERVICE = "site.termix.cloudssh";
 const DEFAULT_KEY_ID = "default-agent-device-key";
@@ -2509,9 +2510,15 @@ export async function main(argv = process.argv.slice(2)) {
   throw new Error(`未知命令组：${group}`);
 }
 
+const modulePath = await realpath(fileURLToPath(import.meta.url)).catch(() =>
+  fileURLToPath(import.meta.url),
+);
+const invocationPath = process.argv[1]
+  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+  : null;
 const invokedDirectly =
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+  invocationPath !== null &&
+  pathToFileURL(modulePath).href === pathToFileURL(invocationPath).href;
 if (invokedDirectly) {
   main().catch((error) => {
     const payload = {

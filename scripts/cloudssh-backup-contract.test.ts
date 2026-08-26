@@ -205,6 +205,7 @@ if [ "$1" = "run" ]; then
       done
       [ -n "$output_directory" ] && [ -n "$partial_name" ] || exit 43
       printf 'mock archive' > "$output_directory/$partial_name"
+      [ "${"$"}{MOCK_ARCHIVE_FAIL:-0}" != "1" ] || exit 44
       ;;
   esac
   exit 0
@@ -961,6 +962,73 @@ describe.skipIf(!shell)("CloudSSH 备份脚本失败边界", () => {
     expect(files.some((file) => file.endsWith(".tar.gz"))).toBe(true);
     expect(files.some((file) => file.endsWith(".manifest"))).toBe(true);
     expect(files.some((file) => file.endsWith(".sha256"))).toBe(true);
+  });
+
+  it("默认只保留最新五套完整备份", async () => {
+    const harness = await createHarness();
+    const output = path.join(harness.directory, "backups");
+    await mkdir(output);
+    for (let day = 1; day <= 7; day += 1) {
+      const archiveName = `cloudssh-state-2000010${day}T000000Z.tar.gz`;
+      await Promise.all([
+        writeFile(path.join(output, archiveName), `archive-${day}`),
+        writeFile(
+          path.join(output, `${archiveName}.manifest`),
+          `manifest-${day}`,
+        ),
+        writeFile(
+          path.join(output, `${archiveName}.sha256`),
+          `checksum-${day}`,
+        ),
+      ]);
+    }
+    await writeFile(path.join(output, "operator-note.keep"), "preserve");
+
+    const result = runShellScript(backupScript, [output], harness);
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    const files = await readdir(output);
+    const archives = files
+      .filter((file) => /^cloudssh-state-.*\.tar\.gz$/u.test(file))
+      .sort();
+    expect(archives).toHaveLength(5);
+    expect(files).toContain("operator-note.keep");
+    expect(files).not.toContain("cloudssh-state-20000101T000000Z.tar.gz");
+    expect(files).not.toContain("cloudssh-state-20000102T000000Z.tar.gz");
+    expect(files).not.toContain("cloudssh-state-20000103T000000Z.tar.gz");
+    for (const archive of archives) {
+      expect(files).toContain(`${archive}.manifest`);
+      expect(files).toContain(`${archive}.sha256`);
+    }
+    expect(result.stdout).toContain("备份保留上限：最新 5 份");
+  });
+
+  it("拒绝无效保留上限且不触碰 Docker 或既有备份", async () => {
+    const harness = await createHarness();
+    const output = path.join(harness.directory, "backups");
+    await mkdir(output);
+    const archive = path.join(output, "cloudssh-state-20000101T000000Z.tar.gz");
+    await writeFile(archive, "preserve");
+
+    const result = runShellScript(backupScript, [output], harness, {
+      CLOUDSSH_BACKUP_RETENTION_COUNT: "0",
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("必须是 1 到 30 的整数");
+    expect(existsSync(harness.log)).toBe(false);
+    expect(await readFile(archive, "utf8")).toBe("preserve");
+  });
+
+  it("归档失败时清理当前未完成的大文件", async () => {
+    const harness = await createHarness();
+    const output = path.join(harness.directory, "backups");
+    const result = runShellScript(backupScript, [output], harness, {
+      MOCK_ARCHIVE_FAIL: "1",
+    });
+
+    expect(result.status).toBe(44);
+    expect(await readdir(output)).toEqual([]);
   });
 
   it.each(["cloudssh", "guacd"])(

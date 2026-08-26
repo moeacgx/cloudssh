@@ -678,6 +678,7 @@
     "toolCompleted": "工具执行完成",
     "toolFailed": "工具执行失败",
     "toolBlocked": "工具已拦截",
+    "highRiskApprovalRequired": "已硬拦截。请核对上方完整命令，然后回复“我确认执行上述高风险命令”。授权仅生效一次，且只适用于同一台服务器上的同一条命令。",
     "toolRoundLimit": "已达到工具调用轮次上限。继续发送消息可接着处理。",
     "chatFailed": "面板 Agent 对话失败",
     "chatStopped": "已停止面板 Agent 请求",

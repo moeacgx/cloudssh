@@ -172,6 +172,10 @@ type PanelAgentUiMessage = PanelAgentChatMessage & {
   id: string;
   error?: string;
 };
+type HighRiskCommandApproval = {
+  targetId: string;
+  command: string;
+};
 
 function createMessageId() {
   return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
@@ -357,6 +361,43 @@ function commandWithEnter(command: string): string {
     ? command
     : `${command}\r`;
 }
+function highRiskCommandKey(targetId: string, command: string): string {
+  return JSON.stringify([targetId, command]);
+}
+
+function explicitlyApprovesHighRiskCommand(content: string): boolean {
+  const normalized = content.trim();
+  if (!normalized || /[?？]/u.test(normalized)) return false;
+  if (
+    /(?:不|不要|不能|取消|拒绝|撤销|别)|\b(?:do not|don't|cancel|deny|reject|revoke)\b/iu.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return (
+    /(?:我)?(?:确认|授权|同意|允许)(?:继续|立即)?(?:执行|运行|删除|操作|上述|前述|刚才|该)/u.test(
+      normalized,
+    ) ||
+    /\b(?:i\s+)?(?:confirm|authorize|approve)\s+(?:the\s+)?(?:execution|command|operation|deletion|delete|run)\b/iu.test(
+      normalized,
+    )
+  );
+}
+
+function isDestructiveCommand(command: string): boolean {
+  const normalized = command.toLowerCase();
+  return [
+    /(?:^|[\s;&|()'"`])(?:sudo\s+)?(?:[\w./-]+\/)?(?:rm|rmdir|unlink|shred)(?:\s|$)/u,
+    /\bfind\b[\s\S]*\s-delete(?:\s|$)/u,
+    /\b(?:docker|podman)\b[\s\S]*\b(?:rm|rmi|prune)\b/u,
+    /\bkubectl\b[\s\S]*\bdelete\b/u,
+    /\b(?:drop|truncate)\s+(?:database|table|schema)\b/u,
+    /\bdelete\s+from\b/u,
+    /\bmkfs(?:\.[a-z0-9_-]+)?\b/u,
+    /\b(?:del|remove-item)\b/u,
+  ].some((pattern) => pattern.test(normalized));
+}
 
 function parseToolResult(content: string): ToolResultPayload | null {
   try {
@@ -431,6 +472,10 @@ export function PanelAgentPanel({
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const latestMessageRef = useRef<HTMLDivElement | null>(null);
   const lastConversationActionRef = useRef<number | null>(null);
+  const pendingHighRiskCommandsRef = useRef<
+    Map<string, HighRiskCommandApproval>
+  >(new Map());
+  const approvedHighRiskCommandsRef = useRef<Set<string>>(new Set());
   const conversationActionHandlersRef = useRef<
     Record<PanelAgentConversationAction["type"], () => void>
   >({
@@ -626,7 +671,7 @@ export function PanelAgentPanel({
     }
 
     const command = stringArg(toolCall.arguments.command);
-    const risk = stringArg(toolCall.arguments.risk) || "medium";
+    const declaredRisk = stringArg(toolCall.arguments.risk) || "medium";
     const purpose = stringArg(toolCall.arguments.purpose);
     if (!command) {
       return toolResult(toolCall, {
@@ -637,20 +682,27 @@ export function PanelAgentPanel({
         error: "COMMAND_REQUIRED",
       });
     }
-    if (risk === "high") {
+    const approvalKey = highRiskCommandKey(targetId, command);
+    const highRisk = declaredRisk === "high" || isDestructiveCommand(command);
+    if (highRisk && !approvedHighRiskCommandsRef.current.delete(approvalKey)) {
+      pendingHighRiskCommandsRef.current.set(approvalKey, {
+        targetId,
+        command,
+      });
       return toolResult(toolCall, {
         ok: false,
         action: toolCall.name,
         targetId,
         hostName,
         command,
-        risk,
+        risk: "high",
         purpose,
         blocked: true,
         error: "HIGH_RISK_REQUIRES_CONFIRMATION",
         recentOutput: handle.getRecentOutput?.(80) ?? "",
       });
     }
+    pendingHighRiskCommandsRef.current.delete(approvalKey);
     if (handle.isConnected?.() === false) {
       return toolResult(toolCall, {
         ok: false,
@@ -658,7 +710,7 @@ export function PanelAgentPanel({
         targetId,
         hostName,
         command,
-        risk,
+        risk: highRisk ? "high" : declaredRisk,
         purpose,
         error: "TARGET_NOT_CONNECTED",
         recentOutput: handle.getRecentOutput?.(80) ?? "",
@@ -673,7 +725,7 @@ export function PanelAgentPanel({
       targetId,
       hostName,
       command,
-      risk,
+      risk: highRisk ? "high" : declaredRisk,
       purpose,
       connected: handle.isConnected?.() ?? false,
       recentOutput: handle.getRecentOutput?.(200) ?? "",
@@ -773,6 +825,7 @@ export function PanelAgentPanel({
         abortControllerRef.current = null;
         setWorking(false);
       }
+      approvedHighRiskCommandsRef.current.clear();
     }
   }
 
@@ -811,6 +864,13 @@ export function PanelAgentPanel({
       toast.error(t("panelAgent.instructionRequired"));
       return;
     }
+    approvedHighRiskCommandsRef.current.clear();
+    if (explicitlyApprovesHighRiskCommand(content)) {
+      approvedHighRiskCommandsRef.current = new Set(
+        pendingHighRiskCommandsRef.current.keys(),
+      );
+    }
+    pendingHighRiskCommandsRef.current.clear();
     const userMessage: PanelAgentUiMessage = {
       id: createMessageId(),
       role: "user",
@@ -869,6 +929,8 @@ export function PanelAgentPanel({
     setAttachments([]);
     setHistoryOpen(false);
     setSettingsOpen(false);
+    pendingHighRiskCommandsRef.current.clear();
+    approvedHighRiskCommandsRef.current.clear();
   }
 
   function newConversation() {
@@ -878,6 +940,8 @@ export function PanelAgentPanel({
     setAttachments([]);
     setHistoryOpen(false);
     setSettingsOpen(false);
+    pendingHighRiskCommandsRef.current.clear();
+    approvedHighRiskCommandsRef.current.clear();
   }
 
   function toggleHistory() {
@@ -898,6 +962,8 @@ export function PanelAgentPanel({
     setAttachments([]);
     setHistoryOpen(false);
     setSettingsOpen(false);
+    pendingHighRiskCommandsRef.current.clear();
+    approvedHighRiskCommandsRef.current.clear();
   }
 
   conversationActionHandlersRef.current = {
@@ -943,9 +1009,13 @@ export function PanelAgentPanel({
             {payload.command}
           </pre>
         )}
-        {payload?.error && (
+        {payload?.error === "HIGH_RISK_REQUIRES_CONFIRMATION" ? (
+          <p className="mb-1 text-amber-600">
+            {t("panelAgent.highRiskApprovalRequired")}
+          </p>
+        ) : payload?.error ? (
           <p className="mb-1 text-amber-600">{payload.error}</p>
-        )}
+        ) : null}
         {payload?.recentOutput && (
           <pre className="max-h-36 overflow-auto rounded-lg bg-background/65 p-2 text-muted-foreground">
             {payload.recentOutput}
