@@ -62,6 +62,8 @@ prune_backup_sets() {
           ????????T??????Z) ;;
           *) continue ;;
         esac
+        [ -s "${archive_path}.manifest" ] &&
+          [ -s "${archive_path}.sha256" ] || continue
         retained=$((retained + 1))
         [ "$retained" -le "$keep_count" ] && continue
         rm -f \

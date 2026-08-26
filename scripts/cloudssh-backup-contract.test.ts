@@ -983,19 +983,28 @@ describe.skipIf(!shell)("CloudSSH 备份脚本失败边界", () => {
       ]);
     }
     await writeFile(path.join(output, "operator-note.keep"), "preserve");
+    const orphanArchive = "cloudssh-state-20000109T000000Z.tar.gz";
+    await writeFile(path.join(output, orphanArchive), "orphan archive");
 
     const result = runShellScript(backupScript, [output], harness);
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     const files = await readdir(output);
     const archives = files
-      .filter((file) => /^cloudssh-state-.*\.tar\.gz$/u.test(file))
+      .filter(
+        (file) =>
+          /^cloudssh-state-.*\.tar\.gz$/u.test(file) &&
+          files.includes(`${file}.manifest`) &&
+          files.includes(`${file}.sha256`),
+      )
       .sort();
     expect(archives).toHaveLength(5);
     expect(files).toContain("operator-note.keep");
     expect(files).not.toContain("cloudssh-state-20000101T000000Z.tar.gz");
     expect(files).not.toContain("cloudssh-state-20000102T000000Z.tar.gz");
     expect(files).not.toContain("cloudssh-state-20000103T000000Z.tar.gz");
+    expect(files).toContain("cloudssh-state-20000104T000000Z.tar.gz");
+    expect(files).toContain(orphanArchive);
     for (const archive of archives) {
       expect(files).toContain(`${archive}.manifest`);
       expect(files).toContain(`${archive}.sha256`);

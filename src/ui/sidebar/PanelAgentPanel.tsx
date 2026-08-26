@@ -409,6 +409,7 @@ function isHighRiskCommand(command: string): boolean {
     /(?:^|[\s;&|()'"`])(?:sudo\s+)?(?:[\w./-]+\/)?(?:rm|rmdir|unlink|shred)(?:\s|$)/u,
     /\bfind\b[\s\S]*\s-delete(?:\s|$)/u,
     /\b(?:docker|podman)\b[\s\S]*\b(?:rm|rmi|prune|stop|restart|kill)\b/u,
+    /\b(?:docker|podman)\b[\s\S]*\bcompose\s+(?:up|down|start|stop|restart)\b/u,
     /\bkubectl\b[\s\S]*\b(?:delete|apply|patch|replace|rollout\s+restart)\b/u,
     /\b(?:drop|truncate)\s+(?:database|table|schema)\b/u,
     /\b(?:delete|insert|update)\s+(?:from|into)?\b/u,
@@ -419,7 +420,8 @@ function isHighRiskCommand(command: string): boolean {
     /\b(?:reboot|shutdown|poweroff|halt)\b/u,
     /\b(?:iptables|ip6tables|nft|ufw|firewall-cmd)\b/u,
     /(?:^|[\s;&|()'"`])(?:sudo\s+)?(?:chmod|chown|chgrp|setfacl|useradd|usermod|userdel|passwd)\b/u,
-    /\b(?:apt(?:-get)?|dnf|yum|apk|pacman|zypper)\s+(?:dist-upgrade|full-upgrade|upgrade)\b/u,
+    /\b(?:apt(?:-get)?|dnf|yum|apk|pacman|zypper)\s+(?:install|remove|purge|autoremove|erase|dist-upgrade|full-upgrade|upgrade|add|del)\b/u,
+    /(?:^|[\s;&|()'"`])(?:sudo\s+)?(?:cp|mv|install|rsync|dd|truncate)\b/u,
     /(?:^|[^0-9])>{1,2}\s*\S/u,
     /\b(?:tee|sed\s+-i)\b/u,
   ].some((pattern) => pattern.test(normalized));

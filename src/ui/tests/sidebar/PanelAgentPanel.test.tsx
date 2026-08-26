@@ -720,6 +720,9 @@ describe("PanelAgentPanel", () => {
       "chmod -R 777 /etc/nginx",
       "iptables -F",
       "printf changed > /etc/nginx/nginx.conf",
+      "cp /tmp/nginx.conf /etc/nginx/nginx.conf",
+      "apt-get remove nginx -y",
+      "dd if=/tmp/image of=/dev/sdb",
       "apt-get dist-upgrade -y",
       "psql app -c 'UPDATE users SET active = false'",
     ];
