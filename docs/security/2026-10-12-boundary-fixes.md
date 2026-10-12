@@ -1,6 +1,6 @@
 # CloudSSH 安全报告核验与修复
 
-核验日期：2026-10-12。代码基线：`88f55f4ff1cf20dd06ee1ab3d56c50509f4a3c9b`，版本 `2.6.0-cloudssh.55`。本记录描述本地修复与隔离测试，不代表修复已发布或上线。
+核验日期：2026-10-12。代码基线：`88f55f4ff1cf20dd06ee1ab3d56c50509f4a3c9b`，修复发布版本：`2.6.0-cloudssh.56`。本记录形成时描述的是本地修复与隔离测试；发布状态以 GitHub Release 和线上运行时核验为准。
 
 ## 核验结论
 
@@ -28,4 +28,4 @@
 - `npm run build` 通过，包含 Vite 构建与后端 TypeScript 编译。全仓 Prettier 通过，ESLint 0 错误、42 个既有警告。
 - 单独前端 `tsc -p tsconfig.app.json --noEmit` 未通过：修改前后基线均为相同的 338 条错误，逐条比较没有新增或删除。本轮没有修复仓库既有类型债务。
 
-安全修复位于分支 `fix/security-boundaries-20261012`，尚未提交、推送、发布或部署。原始工作区中的性能改动保留。
+安全修复位于分支 `fix/security-boundaries-20261012`，原始工作区中的性能改动保留。
