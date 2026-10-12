@@ -745,6 +745,8 @@
     "newConnection": "New connection",
     "projectsLoading": "Loading projects...",
     "projectsLoadFailed": "Unable to load projects. Please try again.",
+    "overviewLoadFailed": "Unable to load the overview. Please try again.",
+    "hostsLoadFailed": "Unable to refresh hosts. Please retry; previously loaded hosts are shown when available.",
     "retryProjects": "Retry",
     "metrics": {
       "servers": "Servers",

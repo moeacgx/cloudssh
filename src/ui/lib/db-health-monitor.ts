@@ -74,6 +74,8 @@ class DatabaseHealthMonitor {
     const errorMessage =
       errorLike.response?.data?.error || errorLike.message || "";
     const errorCode = errorLike.response?.data?.code || errorLike.code;
+    // 主动取消优先判定，不能被 request aborted 等文案误判为断线。
+    if (errorCode === "ERR_CANCELED") return;
     const lowerMessage = errorMessage.toLowerCase();
 
     const isDatabaseError =

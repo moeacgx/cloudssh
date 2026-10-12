@@ -268,6 +268,8 @@ export function createCurrentSessionRepository(): SessionRepository {
   return new SessionRepository(
     createCurrentRepositoryContext(),
     createCurrentRepositoryWriteHook("session_repository_write"),
+    // 活动时间允许合并保存；创建、令牌更新和撤销仍使用强制持久化。
+    () => DatabaseSaveTrigger.triggerSave("session_activity_touch"),
   );
 }
 

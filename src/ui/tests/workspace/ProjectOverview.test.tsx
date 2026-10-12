@@ -1,9 +1,22 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mainAxios = vi.hoisted(() => ({
   getSSHHosts: vi.fn(async () => [] as Record<string, unknown>[]),
   getActiveSessions: vi.fn(async () => [] as Record<string, unknown>[]),
+}));
+
+const statusStore = vi.hoisted(() => ({
+  getStatus: vi.fn(() => "online"),
+}));
+vi.mock("@/lib/ServerStatusContext", () => ({
+  useServerStatus: () => statusStore,
 }));
 
 const workspaceApi = vi.hoisted(() => ({
@@ -36,11 +49,6 @@ vi.mock("@/workspace/WorkspaceContext", () => ({
 }));
 vi.mock("@/main-axios", () => mainAxios);
 vi.mock("@/api/workspace-api", () => workspaceApi);
-vi.mock("@/lib/ServerStatusContext", () => ({
-  useServerStatus: () => ({
-    statuses: new Map([[7, { status: "online" }]]),
-  }),
-}));
 vi.mock("@/workspace/ProjectSettingsDialog", () => ({
   ProjectSettingsDialog: ({ open }: { open: boolean }) =>
     open ? <div role="dialog">project-settings-dialog</div> : null,
@@ -58,6 +66,8 @@ import { ProjectOverview } from "@/workspace/ProjectOverview";
 describe("ProjectOverview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    workspace.activeProject.id = "project-1";
+    statusStore.getStatus.mockReturnValue("online");
     mainAxios.getSSHHosts.mockResolvedValue([]);
     mainAxios.getActiveSessions.mockResolvedValue([]);
     workspaceApi.getWorkspaceProjectOverview.mockResolvedValue({
@@ -65,6 +75,130 @@ describe("ProjectOverview", () => {
       recentAgentActivity: [],
     });
     workspaceApi.getWorkspaceProjectServers.mockResolvedValue([]);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  const host = {
+    id: 7,
+    name: "目标主机",
+    ip: "192.0.2.7",
+    port: 22,
+    username: "root",
+    status: "unknown",
+    pin: true,
+  };
+  const projectServer = {
+    projectHostId: 71,
+    hostId: 7,
+    name: "目标主机",
+    folder: "",
+  };
+
+  it("状态请求未完成时仍显示主机，并从共享状态更新在线数量", async () => {
+    mainAxios.getSSHHosts.mockImplementation(
+      (options?: { includeStatus?: boolean }) =>
+        options?.includeStatus === false
+          ? Promise.resolve([host])
+          : new Promise(() => {}),
+    );
+    workspaceApi.getWorkspaceProjectServers.mockResolvedValue([projectServer]);
+    const view = render(<ProjectOverview onOpenTab={vi.fn()} />);
+    await screen.findByText("目标主机");
+    const metric = screen.getByText("workspace.metrics.online").parentElement
+      ?.parentElement;
+    expect(metric?.textContent).toContain("1");
+    statusStore.getStatus.mockReturnValue("offline");
+    view.rerender(<ProjectOverview onOpenTab={vi.fn()} />);
+    expect(metric?.textContent).toContain("0");
+  });
+
+  it("初次失败展示错误和重试，不能把失败显示为空项目", async () => {
+    mainAxios.getSSHHosts.mockRejectedValueOnce(new Error("network timeout"));
+    render(<ProjectOverview onOpenTab={vi.fn()} />);
+    expect(screen.queryByText("workspace.noServers")).toBeNull();
+    await screen.findByRole("alert");
+    mainAxios.getSSHHosts.mockResolvedValue([host]);
+    workspaceApi.getWorkspaceProjectServers.mockResolvedValue([projectServer]);
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    await screen.findByText("目标主机");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("切换项目立即隐藏旧主机", async () => {
+    mainAxios.getSSHHosts.mockResolvedValue([host]);
+    workspaceApi.getWorkspaceProjectServers.mockResolvedValue([projectServer]);
+    const view = render(<ProjectOverview onOpenTab={vi.fn()} />);
+    await screen.findByText("目标主机");
+    workspace.activeProject.id = "project-2";
+    workspaceApi.getWorkspaceProjectServers.mockImplementation(
+      () => new Promise(() => {}),
+    );
+    view.rerender(<ProjectOverview onOpenTab={vi.fn()} />);
+    expect(screen.queryByText("目标主机")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("common.loading");
+  });
+
+  it("会话服务缓慢时主机独立加载，首次加载的指标不伪装为零", async () => {
+    mainAxios.getSSHHosts.mockResolvedValue([host]);
+    workspaceApi.getWorkspaceProjectServers.mockResolvedValue([projectServer]);
+    mainAxios.getActiveSessions.mockImplementation(() => new Promise(() => {}));
+    render(<ProjectOverview onOpenTab={vi.fn()} />);
+    await screen.findByText("目标主机");
+    const metric = screen.getByText("workspace.metrics.persistentSessions")
+      .parentElement?.parentElement;
+    expect(metric?.textContent).toContain("—");
+    expect(screen.getByRole("status")).toBeTruthy();
+  });
+
+  it("旧项目迟到响应不能覆盖新项目内容", async () => {
+    mainAxios.getSSHHosts.mockResolvedValue([host]);
+    let resolveOld!: (value: Record<string, unknown>[]) => void;
+    workspaceApi.getWorkspaceProjectServers.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    const view = render(<ProjectOverview onOpenTab={vi.fn()} />);
+    workspace.activeProject.id = "project-2";
+    workspaceApi.getWorkspaceProjectServers.mockResolvedValue([]);
+    view.rerender(<ProjectOverview onOpenTab={vi.fn()} />);
+    await screen.findByText("workspace.noServers");
+    await act(async () => {
+      resolveOld([projectServer]);
+    });
+    expect(screen.queryByText("目标主机")).toBeNull();
+    expect(screen.getByText("workspace.noServers")).toBeTruthy();
+  });
+
+  it("地区信息轮询等待在途刷新，失败保留已加载主机", async () => {
+    vi.useFakeTimers();
+    mainAxios.getSSHHosts.mockResolvedValue([host]);
+    workspaceApi.getWorkspaceProjectServers.mockResolvedValue([
+      { ...projectServer, networkInfo: { status: "pending" } },
+    ]);
+    render(<ProjectOverview onOpenTab={vi.fn()} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("目标主机")).toBeTruthy();
+    let rejectRefresh!: (error: Error) => void;
+    workspaceApi.getWorkspaceProjectServers.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectRefresh = reject;
+        }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9000);
+    });
+    expect(workspaceApi.getWorkspaceProjectServers).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      rejectRefresh(new Error("timeout"));
+    });
+    expect(screen.getByText("目标主机")).toBeTruthy();
+    expect(screen.getByRole("alert")).toBeTruthy();
   });
 
   it("点击项目设置会打开设置窗口", async () => {
@@ -161,6 +295,38 @@ describe("ProjectOverview", () => {
     expect(workspaceApi.getWorkspaceProjectServers).toHaveBeenCalledWith(
       "project-1",
     );
+  });
+
+  it("保留新版网页持续会话的重连入口", async () => {
+    mainAxios.getSSHHosts.mockResolvedValue([host]);
+    workspaceApi.getWorkspaceProjectServers.mockResolvedValue([projectServer]);
+    const session = {
+      sessionId: "web-pinned",
+      hostId: 7,
+      projectHostId: 71,
+      isOwnSession: true,
+      sessionSource: "web",
+      sessionPinned: true,
+      sessionManagedTmux: false,
+    };
+    mainAxios.getActiveSessions.mockResolvedValue([session]);
+    const reconnect = vi.fn();
+    render(
+      <ProjectOverview
+        onOpenTab={vi.fn()}
+        onOpenPersistentSession={reconnect}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "connections.reconnect" }),
+    );
+    expect(reconnect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "7", projectHostId: "71" }),
+      session,
+    );
+    expect(
+      screen.getByText("connections.platformKeepaliveSession"),
+    ).toBeTruthy();
   });
 
   it("只把服务账号持续会话展示为 Agent 会话", async () => {

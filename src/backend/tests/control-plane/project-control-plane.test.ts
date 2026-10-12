@@ -1,6 +1,8 @@
 import http from "http";
 import express, { type RequestHandler } from "express";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import * as schema from "../../database/db/schema.js";
 import { ensureControlPlaneSchema } from "../../control-plane/schema-migration.js";
 import { ProjectRepository } from "../../control-plane/project-repository.js";
 import { createControlPlaneRouter } from "../../control-plane/routes.js";
@@ -51,6 +53,8 @@ describe("云 SSH 项目控制面", () => {
         latency_ms INTEGER,
         detail TEXT
       );
+      CREATE INDEX idx_host_health_history_lookup
+        ON host_health_history (user_id, host_id, check_id, ts);
 
       INSERT INTO users (id, username, password_hash, is_admin) VALUES
         ('owner', 'owner-name', 'hash', 0),
@@ -245,6 +249,134 @@ describe("云 SSH 项目控制面", () => {
       linkedProjectCount: 2,
       canDeleteFromAllProjects: true,
     });
+  });
+
+  it("项目列表直接汇总主机 ID 和去重成员数，保持可见项目隔离", async () => {
+    context.sqlite!.exec(`
+      INSERT INTO project_members (project_id, user_id, role, added_by)
+        VALUES ('project-1', 'team-viewer', 'viewer', 'owner');
+      INSERT INTO project_role_grants (project_id, role_id, project_role, added_by)
+        VALUES ('project-1', 50, 'viewer', 'owner');
+      INSERT INTO user_roles (user_id, role_id, granted_by)
+        VALUES ('member', 50, 'owner');
+    `);
+    const queries: string[] = [];
+    const measuredRepository = new ProjectRepository({
+      ...context,
+      drizzle: drizzle(context.sqlite!, {
+        schema,
+        logger: {
+          logQuery(query) {
+            queries.push(query);
+          },
+        },
+      }),
+    });
+    const visibleProjects =
+      await measuredRepository.listVisibleProjects("owner");
+    expect(queries).toHaveLength(1);
+    expect(visibleProjects).toEqual([
+      expect.objectContaining({
+        id: "personal-1",
+        hostIds: [],
+        memberCount: 3,
+      }),
+      expect.objectContaining({
+        id: "project-1",
+        hostIds: [7],
+        memberCount: 4,
+      }),
+    ]);
+    expect(
+      (await repository.listVisibleProjects("member")).map((project) => ({
+        id: project.id,
+        hostIds: project.hostIds,
+        memberCount: project.memberCount,
+      })),
+    ).toEqual([{ id: "project-1", hostIds: [7], memberCount: 4 }]);
+    expect(
+      (await repository.getProjectOverview("project-1", "owner"))?.counts
+        .memberCount,
+    ).toBe(4);
+    expect(
+      (await repository.getProjectOverview("personal-1", "owner"))?.counts
+        .memberCount,
+    ).toBe(3);
+  });
+
+  it("没有健康历史的主机仍返回未知状态", async () => {
+    context.sqlite!.exec(`
+      INSERT INTO ssh_data (id, user_id, name, ip, port, username)
+        VALUES (9, 'owner', 'New server', '10.0.0.9', 22, 'root');
+      INSERT INTO project_hosts (project_id, host_id, added_by)
+        VALUES ('project-1', 9, 'owner');
+    `);
+    const servers = await repository.listProjectServers("project-1", "member");
+    expect(servers?.find((server) => server.hostId === 9)?.health).toEqual({
+      status: "unknown",
+      checkedAt: null,
+    });
+  });
+
+  it("最新健康状态通过主机索引定位且相同时间按 ID 取最新记录", async () => {
+    context.sqlite!.exec(`
+      UPDATE host_health_history SET ts = '2026-10-12T00:00:00.000Z';
+      INSERT INTO host_health_history (user_id, host_id, check_id, ts, ok) VALUES
+        ('member', 7, 'ssh', '2026-10-12T00:01:00.000Z', 1),
+        ('owner', 7, 'tcp', '2026-10-12T00:01:00.000Z', 0),
+        ('owner', 8, 'tcp', '2026-10-12T00:02:00.000Z', 1);
+    `);
+    const queries: Array<{ query: string; params: unknown[] }> = [];
+    const measuredRepository = new ProjectRepository({
+      ...context,
+      drizzle: drizzle(context.sqlite!, {
+        schema,
+        logger: {
+          logQuery(query, params) {
+            queries.push({ query, params });
+          },
+        },
+      }),
+    });
+    const servers = await measuredRepository.listProjectServers(
+      "project-1",
+      "member",
+    );
+    expect(servers).toHaveLength(1);
+    expect(servers?.[0].health).toEqual({
+      status: "unhealthy",
+      checkedAt: "2026-10-12T00:01:00.000Z",
+    });
+    expect(
+      await measuredRepository.listProjectServers("project-2", "member"),
+    ).toBeNull();
+    const healthQuery = queries.find(({ query }) =>
+      query.includes("host_health_history"),
+    )!;
+    const plan = context
+      .sqlite!.prepare(`EXPLAIN QUERY PLAN ${healthQuery.query}`)
+      .all(...healthQuery.params) as Array<{ detail: string }>;
+    const healthSteps = plan.filter(({ detail }) =>
+      detail.includes("latest_health"),
+    );
+    expect(healthSteps).toHaveLength(2);
+    expect(
+      healthSteps.every(
+        ({ detail }) =>
+          detail.includes("SEARCH") && detail.includes("host_id=?"),
+      ),
+    ).toBe(true);
+    // 外层项目服务器排序仍需临时树，健康子查询不应再额外排序。
+    expect(
+      plan.filter(({ detail }) =>
+        detail.includes("USE TEMP B-TREE FOR ORDER BY"),
+      ),
+    ).toHaveLength(1);
+    ensureControlPlaneSchema(context.sqlite!);
+    expect(
+      (await measuredRepository.listProjectServers("project-1", "member"))?.[0]
+        .health,
+    ).toEqual(servers?.[0].health);
   });
 
   it("按项目主机关联和项目角色解析底层主机权限", async () => {

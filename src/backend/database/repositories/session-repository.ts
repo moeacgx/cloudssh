@@ -1,4 +1,4 @@
-import { and, eq, lte, ne } from "drizzle-orm";
+import { and, eq, lte, ne, sql } from "drizzle-orm";
 import { sessions } from "../db/schema.js";
 import type { DatabaseContext } from "./database-context.js";
 
@@ -9,6 +9,9 @@ export class SessionRepository {
   constructor(
     private readonly context: DatabaseContext,
     private readonly onWrite?: () => void | Promise<void>,
+    private readonly onTouch:
+      | (() => void | Promise<void>)
+      | undefined = onWrite,
   ) {}
 
   async create(session: NewSessionRecord): Promise<SessionRecord> {
@@ -52,11 +55,23 @@ export class SessionRepository {
     id: string,
     lastActiveAt = new Date().toISOString(),
   ): Promise<void> {
-    await this.context.drizzle
+    const cutoffDate = new Date(Date.parse(lastActiveAt) - 60_000);
+    // 无效或超出范围的时间不应中断请求，也不能写入会话活动记录。
+    if (!Number.isFinite(cutoffDate.getTime())) return;
+    const cutoff = cutoffDate.toISOString();
+    // 在数据库中原子判断，跨仓库实例的并发请求也只会每分钟更新一次。
+    // julianday 同时兼容旧的 SQLite 时间和 ISO 时间，不改变会话到期时间。
+    const updated = await this.context.drizzle
       .update(sessions)
       .set({ lastActiveAt })
-      .where(eq(sessions.id, id));
-    await this.afterWrite();
+      .where(
+        and(
+          eq(sessions.id, id),
+          sql`julianday(${sessions.lastActiveAt}) <= julianday(${cutoff})`,
+        ),
+      )
+      .returning({ id: sessions.id });
+    if (updated.length > 0) await this.onTouch?.();
   }
 
   async updateToken(

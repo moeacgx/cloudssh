@@ -188,6 +188,8 @@ export function HostsPanel({
   onEditHost,
   hostTree,
   loading,
+  error = false,
+  onRetry,
   onEditingChange,
   active = true,
   projectFolderActions,
@@ -196,6 +198,8 @@ export function HostsPanel({
   onEditHost: (host: Host) => void;
   hostTree?: HostFolder;
   loading?: boolean;
+  error?: boolean;
+  onRetry?: () => Promise<void>;
   onEditingChange?: (editing: boolean) => void;
   active?: boolean;
   projectFolderActions?: ProjectFolderActions;
@@ -310,7 +314,7 @@ export function HostsPanel({
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      getSSHHosts()
+      getSSHHosts({ includeStatus: false })
         .then((hosts) => {
           if (!cancelled) setRawHosts(hosts);
         })
@@ -341,7 +345,7 @@ export function HostsPanel({
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      const hosts = await getSSHHosts();
+      const hosts = await getSSHHosts({ includeStatus: false });
       setRawHosts(hosts);
       window.dispatchEvent(new CustomEvent("termix:hosts-changed"));
     } catch {
@@ -1049,42 +1053,62 @@ export function HostsPanel({
       <div
         className={`flex flex-col flex-1 min-h-0 ${managerEditing ? "hidden" : ""}`}
       >
-        <SidebarTree
-          children={
-            hostTree
-              ? groupHosts(
-                  applyFilters(
-                    sortHostTree(hostTree, sortKey, pinnedFirst),
-                    filterState,
-                  ),
-                  groupKey,
-                  groupLabel,
-                ).children
-              : []
-          }
-          onOpenTab={onOpenTab}
-          onEditHost={onEditHost}
-          onShareHost={(host) => setShareModalHost(host)}
-          onProxmoxDiscover={
-            projectFolderActions?.canManage === false
-              ? undefined
-              : (host) => {
-                  const cfg = host.proxmoxConfig;
-                  setProxmoxHostId(Number(host.id));
-                  setProxmoxDefaultCredentialId(
-                    cfg?.defaultCredentialId ?? null,
-                  );
-                  setProxmoxDefaultAuthType(cfg?.defaultAuthType ?? undefined);
-                  setProxmoxDefaultUsername(undefined);
-                  setProxmoxDialogOpen(true);
-                }
-          }
-          query={hostSearch.trim().toLowerCase()}
-          selectionMode={selectionMode}
-          onToggleSelectionMode={toggleSelectionMode}
-          loading={loading}
-          projectFolderActions={projectFolderActions}
-        />
+        {error && (
+          <div
+            role="alert"
+            className="m-2 flex items-center justify-between gap-2 rounded border border-destructive/30 p-2 text-xs text-destructive"
+          >
+            <span>{t("workspace.hostsLoadFailed")}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loading}
+              onClick={() => void onRetry?.()}
+            >
+              {t("common.retry")}
+            </Button>
+          </div>
+        )}
+        {(!error || hostTree) && (
+          <SidebarTree
+            children={
+              hostTree
+                ? groupHosts(
+                    applyFilters(
+                      sortHostTree(hostTree, sortKey, pinnedFirst),
+                      filterState,
+                    ),
+                    groupKey,
+                    groupLabel,
+                  ).children
+                : []
+            }
+            onOpenTab={onOpenTab}
+            onEditHost={onEditHost}
+            onShareHost={(host) => setShareModalHost(host)}
+            onProxmoxDiscover={
+              projectFolderActions?.canManage === false
+                ? undefined
+                : (host) => {
+                    const cfg = host.proxmoxConfig;
+                    setProxmoxHostId(Number(host.id));
+                    setProxmoxDefaultCredentialId(
+                      cfg?.defaultCredentialId ?? null,
+                    );
+                    setProxmoxDefaultAuthType(
+                      cfg?.defaultAuthType ?? undefined,
+                    );
+                    setProxmoxDefaultUsername(undefined);
+                    setProxmoxDialogOpen(true);
+                  }
+            }
+            query={hostSearch.trim().toLowerCase()}
+            selectionMode={selectionMode}
+            onToggleSelectionMode={toggleSelectionMode}
+            loading={loading}
+            projectFolderActions={projectFolderActions}
+          />
+        )}
       </div>
 
       <div

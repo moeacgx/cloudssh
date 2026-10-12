@@ -161,7 +161,10 @@ test("Skill 通过安装目录别名直接启动", async () => {
       process.platform === "win32" ? "junction" : "dir",
     );
 
-    const { stdout } = await execFileAsync(process.execPath, [aliasScript, "help"]);
+    const { stdout } = await execFileAsync(process.execPath, [
+      aliasScript,
+      "help",
+    ]);
 
     assert.match(stdout, /CloudSSH Skill CLI/);
   } finally {

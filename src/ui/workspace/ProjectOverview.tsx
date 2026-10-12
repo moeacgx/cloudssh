@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Activity,
@@ -27,30 +27,50 @@ import {
   type WorkspaceProjectSession,
 } from "@/api/workspace-api";
 import { ProjectSettingsDialog } from "@/workspace/ProjectSettingsDialog";
+import { dbHealthMonitor } from "@/lib/db-health-monitor";
 
-export function ProjectOverview({
-  onOpenTab,
-  onOpenAgentSession,
-  onOpenPersistentSession,
-}: {
+type ProjectOverviewProps = {
   onOpenTab: (host: Host, type: TabType) => void;
   onOpenAgentSession?: (host: Host, sessionId: string, label: string) => void;
   onOpenPersistentSession?: (host: Host, session: ActiveSessionInfo) => void;
-}) {
+};
+
+export function ProjectOverview(props: ProjectOverviewProps) {
+  const { activeProject } = useWorkspace();
+  // 切换项目即重建状态，旧项目的异步响应不能进入新项目。
+  return <ProjectOverviewContent key={activeProject.id} {...props} />;
+}
+
+function ProjectOverviewContent({
+  onOpenTab,
+  onOpenAgentSession,
+  onOpenPersistentSession,
+}: ProjectOverviewProps) {
   const { t, i18n } = useTranslation();
   const { activeProject, refreshProjects } = useWorkspace();
-  const { statuses } = useServerStatus();
-  const [hosts, setHosts] = useState<SSHHostWithStatus[]>([]);
+  const [hostConfigs, setHosts] = useState<SSHHostWithStatus[]>([]);
+  const { getStatus } = useServerStatus();
+  const hosts: SSHHostWithStatus[] = hostConfigs.map((host) => {
+    const status = getStatus(Number(host.id));
+    return { ...host, status: status === "degraded" ? "unknown" : status };
+  });
   const [sessions, setSessions] = useState<ActiveSessionInfo[]>([]);
   const [activity, setActivity] = useState<AgentActivity[]>([]);
   const [agentSessions, setAgentSessions] = useState<WorkspaceProjectSession[]>(
     [],
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [networkInfoRefreshVersion, setNetworkInfoRefreshVersion] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [loaded, setLoaded] = useState({
+    hosts: false,
+    sessions: false,
+    activity: false,
+  });
+  const reloadRef = useRef<() => Promise<void>>(async () => {});
 
   usePageVisibleInterval(
-    () => setNetworkInfoRefreshVersion((version) => version + 1),
+    () => reloadRef.current(),
     3_000,
     hasPendingHostNetworkInfo(hosts),
     { runOnMount: false },
@@ -58,77 +78,117 @@ export function ProjectOverview({
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      getSSHHosts({ includeStatus: false }),
-      getWorkspaceProjectServers(activeProject.id),
-      getActiveSessions().catch(() => []),
-      getWorkspaceProjectOverview(activeProject.id).catch(() => ({
-        sessions: [],
-        recentAgentActivity: [],
-      })),
-    ]).then(([nextHosts, projectServers, nextSessions, nextOverview]) => {
-      if (cancelled) return;
-      const hostsById = new Map(
-        nextHosts.map((host) => [Number(host.id), host]),
+    let inFlight: Promise<void> | null = null;
+    let failed = false;
+    const load = (): Promise<void> => {
+      if (inFlight) return inFlight;
+      setLoading(true);
+      setLoadError(false);
+      const projectServersRequest = getWorkspaceProjectServers(
+        activeProject.id,
       );
-      setHosts(
-        projectServers.flatMap((server) => {
-          const host = hostsById.get(Number(server.hostId));
-          if (!host) return [];
-          return [
-            {
-              ...host,
-              projectHostId: server.projectHostId,
-              sourceName: host.name,
-              sourceFolder: host.folder ?? "",
-              name: server.name || host.name,
-              folder: server.folder ?? "",
-              networkInfo: server.networkInfo ?? host.networkInfo,
-            },
-          ];
-        }),
-      );
-      const projectHostIds = new Set(
-        projectServers.map((server) => Number(server.projectHostId)),
-      );
-      const projectHostIdsByHostId = new Set(
-        projectServers.map((server) => Number(server.hostId)),
-      );
-      setSessions(
-        nextSessions.filter((session) => {
-          // Agent 浏览器观察附件拥有独立的网页 sessionId，但它并不是
-          // 第二条持续会话；权威行的 sessionId 与 agentSessionId 相同。
-          if (
-            session.agentSessionId &&
-            session.sessionId !== session.agentSessionId
-          ) {
-            return false;
-          }
-          // 新接口带有项目主机关联 ID，优先使用它避免同一主机跨项目串线；
-          // 旧网页会话没有该字段时再按主机 ID兼容过滤。
-          if (session.projectHostId != null) {
-            return projectHostIds.has(Number(session.projectHostId));
-          }
-          return projectHostIdsByHostId.has(Number(session.hostId));
-        }),
-      );
-      setActivity(nextOverview.recentAgentActivity.slice(0, 8));
-      // 概览中的持续会话既可能由网页用户创建，也可能由 Agent 创建。
-      // 只有服务账号会话才能走 Agent 附着流程，避免把普通固定窗口误标为 Agent。
-      setAgentSessions(
-        nextOverview.sessions.filter(
-          (session) => session.actor.type === "service_account",
-        ),
-      );
-    });
+      const hostsRequest = Promise.all([
+        getSSHHosts({ includeStatus: false }),
+        projectServersRequest,
+      ]).then(([nextHosts, projectServers]) => {
+        if (cancelled) return;
+        const hostsById = new Map(
+          nextHosts.map((host) => [Number(host.id), host]),
+        );
+        setHosts(
+          projectServers.flatMap((server) => {
+            const host = hostsById.get(Number(server.hostId));
+            if (!host) return [];
+            return [
+              {
+                ...host,
+                projectHostId: server.projectHostId,
+                sourceName: host.name,
+                sourceFolder: host.folder ?? "",
+                name: server.name || host.name,
+                folder: server.folder ?? "",
+                networkInfo: server.networkInfo ?? host.networkInfo,
+              },
+            ];
+          }),
+        );
+        setLoaded((value) => ({ ...value, hosts: true }));
+      });
+      const sessionsRequest = Promise.all([
+        getActiveSessions(),
+        projectServersRequest,
+      ]).then(([nextSessions, projectServers]) => {
+        if (cancelled) return;
+        const projectHostIds = new Set(
+          projectServers.map((server) => Number(server.projectHostId)),
+        );
+        const projectHostIdsByHostId = new Set(
+          projectServers.map((server) => Number(server.hostId)),
+        );
+        setSessions(
+          nextSessions.filter((session) => {
+            // Agent 浏览器观察附件拥有独立的网页 sessionId，但它并不是
+            // 第二条持续会话；权威行的 sessionId 与 agentSessionId 相同。
+            if (
+              session.agentSessionId &&
+              session.sessionId !== session.agentSessionId
+            ) {
+              return false;
+            }
+            // 新接口带有项目主机关联 ID，优先使用它避免同一主机跨项目串线；
+            // 旧网页会话没有该字段时再按主机 ID兼容过滤。
+            if (session.projectHostId != null) {
+              return projectHostIds.has(Number(session.projectHostId));
+            }
+            return projectHostIdsByHostId.has(Number(session.hostId));
+          }),
+        );
+        setLoaded((value) => ({ ...value, sessions: true }));
+      });
+      const activityRequest = getWorkspaceProjectOverview(
+        activeProject.id,
+      ).then((nextOverview) => {
+        if (cancelled) return;
+        setActivity(nextOverview.recentAgentActivity.slice(0, 8));
+        // 概览中的持续会话既可能由网页用户创建，也可能由 Agent 创建。
+        // 只有服务账号会话才能走 Agent 附着流程，避免把普通固定窗口误标为 Agent。
+        setAgentSessions(
+          nextOverview.sessions.filter(
+            (session) => session.actor.type === "service_account",
+          ),
+        );
+        setLoaded((value) => ({ ...value, activity: true }));
+      });
+      // 各区域独立呈现；后台刷新失败时保留本项目上次成功的数据。
+      inFlight = Promise.allSettled([
+        hostsRequest,
+        sessionsRequest,
+        activityRequest,
+      ])
+        .then((results) => {
+          if (cancelled) return;
+          failed = results.some((result) => result.status === "rejected");
+          setLoadError(failed);
+          setLoading(false);
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+      return inFlight;
+    };
+    reloadRef.current = load;
+    void load();
+    const onRestored = () => {
+      if (failed) void load();
+    };
+    dbHealthMonitor.on("database-connection-degraded-cleared", onRestored);
     return () => {
       cancelled = true;
+      dbHealthMonitor.off("database-connection-degraded-cleared", onRestored);
     };
-  }, [activeProject.id, networkInfoRefreshVersion]);
+  }, [activeProject.id]);
 
-  const online = hosts.filter(
-    (host) => statuses.get(Number(host.id))?.status === "online",
-  ).length;
+  const online = hosts.filter((host) => host.status === "online").length;
   const pinned = useMemo(
     () => [...hosts].sort((a, b) => Number(b.pin) - Number(a.pin)).slice(0, 8),
     [hosts],
@@ -309,23 +369,55 @@ export function ProjectOverview({
           </div>
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span className="size-1.5 rounded-full bg-emerald-500" />
-            {t("workspace.hostsOnline", { online, total: hosts.length })}
+            {loaded.hosts
+              ? t("workspace.hostsOnline", { online, total: hosts.length })
+              : "—"}
           </div>
         </div>
 
+        {loading && (
+          <div role="status" className="mt-4 text-xs text-muted-foreground">
+            {t("common.loading")}
+          </div>
+        )}
+        {loadError && (
+          <div
+            role="alert"
+            className="mt-4 flex items-center justify-between gap-3 text-xs text-destructive"
+          >
+            <span>{t("workspace.overviewLoadFailed")}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loading}
+              onClick={() => void reloadRef.current()}
+            >
+              {t("common.retry")}
+            </Button>
+          </div>
+        )}
+
         <section className="mt-6 grid grid-cols-2 border border-border md:grid-cols-4">
           {[
-            [Server, t("workspace.metrics.servers"), String(hosts.length)],
-            [MonitorDot, t("workspace.metrics.online"), String(online)],
+            [
+              Server,
+              t("workspace.metrics.servers"),
+              loaded.hosts ? String(hosts.length) : "—",
+            ],
+            [
+              MonitorDot,
+              t("workspace.metrics.online"),
+              loaded.hosts ? String(online) : "—",
+            ],
             [
               TerminalSquare,
               t("workspace.metrics.persistentSessions"),
-              String(sessions.length),
+              loaded.sessions ? String(sessions.length) : "—",
             ],
             [
               Bot,
               t("workspace.metrics.agentActivity"),
-              String(activity.length),
+              loaded.activity ? String(activity.length) : "—",
             ],
           ].map(([Icon, label, value], index) => {
             const MetricIcon = Icon as typeof Server;
@@ -365,7 +457,9 @@ export function ProjectOverview({
           <div className="divide-y divide-border border border-border">
             {persistentSessionRowsCount === 0 ? (
               <div className="px-4 py-7 text-center text-xs text-muted-foreground">
-                {t("workspace.noPersistentSessions")}
+                {loaded.activity && loaded.sessions
+                  ? t("workspace.noPersistentSessions")
+                  : "—"}
               </div>
             ) : (
               <>
@@ -511,7 +605,7 @@ export function ProjectOverview({
             <div className="divide-y divide-border border border-border">
               {pinned.length === 0 ? (
                 <div className="px-4 py-12 text-center text-xs text-muted-foreground">
-                  {t("workspace.noServers")}
+                  {loaded.hosts ? t("workspace.noServers") : "—"}
                 </div>
               ) : (
                 pinned.map((host) => (
@@ -521,7 +615,7 @@ export function ProjectOverview({
                     onClick={() => onOpenTab(sshHostToHost(host), "terminal")}
                   >
                     <span
-                      className={`size-2 rounded-full ${statuses.get(Number(host.id))?.status === "online" ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
+                      className={`size-2 rounded-full ${host.status === "online" ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium">
@@ -554,7 +648,7 @@ export function ProjectOverview({
                 <div className="px-4 py-12 text-center">
                   <Clock3 className="mx-auto mb-2 size-5 text-muted-foreground/40" />
                   <p className="text-xs text-muted-foreground">
-                    {t("workspace.noAgentActivity")}
+                    {loaded.activity ? t("workspace.noAgentActivity") : "—"}
                   </p>
                 </div>
               ) : (
