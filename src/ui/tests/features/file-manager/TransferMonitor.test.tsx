@@ -72,20 +72,40 @@ describe("传输状态轮询", () => {
     expect(api.begin).not.toHaveBeenCalled();
   });
 
-  it("查询超时保留待恢复传输，明确不存在才清理", async () => {
-    vi.useFakeTimers();
-    registerPendingTransfer("pending-1");
-    api.list.mockResolvedValue({ transfers: [] });
-    api.status.mockRejectedValueOnce(new Error("timeout"));
-    render(<TransferMonitor />);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(getPendingTransferIds()).toEqual(["pending-1"]);
-    api.status.mockRejectedValueOnce({ response: { status: 404 } });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-    expect(getPendingTransferIds()).toEqual([]);
-  });
+  it.each(["api", "axios"])(
+    "查询超时保留待恢复传输，%s 404 才清理",
+    async (shape) => {
+      vi.useFakeTimers();
+      registerPendingTransfer("pending-1");
+      api.list.mockResolvedValue({ transfers: [] });
+      api.status.mockRejectedValueOnce(new Error("timeout"));
+      render(<TransferMonitor />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(getPendingTransferIds()).toEqual(["pending-1"]);
+      let missingError: unknown = { response: { status: 404 } };
+      if (shape === "api") {
+        const { handleApiError } =
+          await vi.importActual<typeof import("@/main-axios.ts")>(
+            "@/main-axios.ts",
+          );
+        try {
+          handleApiError(
+            { isAxiosError: true, response: { status: 404 }, config: {} },
+            "get transfer status",
+          );
+        } catch (error) {
+          missingError = error;
+        }
+        expect(missingError).toMatchObject({ name: "ApiError", status: 404 });
+        expect(missingError).not.toHaveProperty("response");
+      }
+      api.status.mockRejectedValueOnce(missingError);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(getPendingTransferIds()).toEqual([]);
+    },
+  );
 });

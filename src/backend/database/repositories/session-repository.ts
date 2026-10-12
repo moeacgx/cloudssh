@@ -55,7 +55,10 @@ export class SessionRepository {
     id: string,
     lastActiveAt = new Date().toISOString(),
   ): Promise<void> {
-    const cutoff = new Date(Date.parse(lastActiveAt) - 60_000).toISOString();
+    const cutoffDate = new Date(Date.parse(lastActiveAt) - 60_000);
+    // 无效或超出范围的时间不应中断请求，也不能写入会话活动记录。
+    if (!Number.isFinite(cutoffDate.getTime())) return;
+    const cutoff = cutoffDate.toISOString();
     // 在数据库中原子判断，跨仓库实例的并发请求也只会每分钟更新一次。
     // julianday 同时兼容旧的 SQLite 时间和 ISO 时间，不改变会话到期时间。
     const updated = await this.context.drizzle

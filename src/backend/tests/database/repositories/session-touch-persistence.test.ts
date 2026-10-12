@@ -111,6 +111,35 @@ describe("会话活动时间的持久化", () => {
     ).toBe("2026-10-12T00:02:00.000Z");
   });
 
+  it.each([
+    "",
+    "invalid-date",
+    "+999999-01-01T00:00:00.000Z",
+    "-271821-04-20T00:00:00.000Z",
+  ])(
+    "无效活动时间 %j 不抛出异常、不更新数据库也不触发保存",
+    async (lastActiveAt) => {
+      await createSession();
+      snapshots.length = 0;
+      const changesBefore = adapter
+        .getSqlite()
+        .prepare("SELECT total_changes() AS count")
+        .get();
+      await expect(
+        createCurrentSessionRepository().touch("session-1", lastActiveAt),
+      ).resolves.toBeUndefined();
+      expect(
+        (await createCurrentSessionRepository().findById("session-1"))
+          ?.lastActiveAt,
+      ).toBe("2026-10-12T00:00:00.000Z");
+      expect(
+        adapter.getSqlite().prepare("SELECT total_changes() AS count").get(),
+      ).toEqual(changesBefore);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(snapshots).toHaveLength(0);
+    },
+  );
+
   it("多个会话的活动更新合并保存，兼容 SQLite 默认时间格式", async () => {
     await createSession("session-1", "2026-10-12 00:00:00");
     await createSession("session-2");

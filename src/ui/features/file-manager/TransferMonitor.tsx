@@ -76,8 +76,11 @@ export function TransferMonitor() {
             );
           } catch (error) {
             // 仅明确不存在时移除记录，网络异常后仍需恢复监控。
-            const status = (error as { response?: { status?: number } })
-              ?.response?.status;
+            const apiError = error as {
+              status?: number;
+              response?: { status?: number };
+            };
+            const status = apiError?.status ?? apiError?.response?.status;
             if (!disposed && status === 404)
               clearStalePendingTransfer(transferId);
           }
