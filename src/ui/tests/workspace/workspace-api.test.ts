@@ -166,34 +166,64 @@ describe("workspace management API", () => {
     );
   });
 
-  it("keeps the project identity when noncritical statistics fail", async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          projects: [
-            {
-              id: "personal-project-id",
-              name: "个人空间",
-              kind: "personal",
-              team: null,
-              role: "instance_admin",
-              slug: "personal",
-              description: null,
-              serverCount: 0,
-            },
-          ],
-        },
-      })
-      .mockRejectedValueOnce(new Error("servers timeout"))
-      .mockRejectedValueOnce(new Error("overview timeout"));
+  it("项目列表保留主机关联和成员数量，无需等待其他项目详情", async () => {
+    api.get.mockResolvedValueOnce({
+      data: {
+        projects: [
+          {
+            id: "personal-project-id",
+            name: "个人空间",
+            kind: "personal",
+            team: null,
+            role: "instance_admin",
+            slug: "personal",
+            description: null,
+            serverCount: 2,
+            hostIds: [7, 9],
+            memberCount: 4,
+          },
+        ],
+      },
+    });
 
     await expect(getWorkspaceProjects()).resolves.toEqual([
       expect.objectContaining({
         id: "personal-project-id",
-        hostIds: [],
-        memberCount: 1,
+        hostIds: [7, 9],
+        memberCount: 4,
       }),
     ]);
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.get).toHaveBeenCalledWith("/control-plane/projects");
+  });
+
+  it("空项目仍保留真实的零成员和空主机关联", async () => {
+    api.get.mockResolvedValueOnce({
+      data: {
+        projects: [
+          {
+            id: "empty-team",
+            name: "空项目",
+            kind: "team",
+            team: { id: "team-1" },
+            role: "instance_admin",
+            slug: "empty",
+            description: null,
+            serverCount: 0,
+            hostIds: [],
+            memberCount: 0,
+          },
+        ],
+      },
+    });
+    await expect(getWorkspaceProjects()).resolves.toEqual([
+      expect.objectContaining({
+        id: "empty-team",
+        hostIds: [],
+        memberCount: 0,
+      }),
+    ]);
+    expect(api.get).toHaveBeenCalledTimes(1);
   });
 
   it.each(["personal", "", "   "])(

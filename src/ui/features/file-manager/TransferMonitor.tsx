@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { getTransferStatus, listActiveTransfers } from "@/main-axios.ts";
 import { createFormatTransferMetrics } from "./transferMetricsFormat.ts";
@@ -16,6 +16,7 @@ import {
 const POLL_INTERVAL_MS = 2000;
 
 export function TransferMonitor() {
+  const inFlight = useRef(false);
   const { t } = useTranslation();
   const formatTransferMetrics = useMemo(
     () => createFormatTransferMetrics(t),
@@ -23,51 +24,67 @@ export function TransferMonitor() {
   );
 
   useEffect(() => {
+    let disposed = false;
     const reconcileTransfers = async () => {
+      if (disposed || inFlight.current || document.visibilityState === "hidden")
+        return;
+      inFlight.current = true;
       try {
-        const { transfers } = await listActiveTransfers();
-        for (const transfer of transfers) {
-          if (isTransferBeingMonitored(transfer.transferId)) continue;
-          beginTransferProgressMonitoring(transfer.transferId, t, {
-            resumed: true,
-            initialStatus: transfer,
-            formatTransferMetrics,
-          });
-        }
-      } catch {
-        // Non-fatal: file-manager service may be unavailable briefly
-      }
-
-      for (const transferId of getPendingTransferIds()) {
-        if (
-          isTransferBeingMonitored(transferId) ||
-          isTransferNotified(transferId)
-        ) {
-          continue;
-        }
-
         try {
-          const status = await getTransferStatus(transferId);
-          if (status.status === "running") {
-            if (!isTransferBeingMonitored(transferId)) {
-              beginTransferProgressMonitoring(transferId, t, {
-                resumed: true,
-                initialStatus: status,
-                formatTransferMetrics,
-              });
-            }
+          const { transfers } = await listActiveTransfers();
+          if (disposed) return;
+          for (const transfer of transfers) {
+            if (isTransferBeingMonitored(transfer.transferId)) continue;
+            beginTransferProgressMonitoring(transfer.transferId, t, {
+              resumed: true,
+              initialStatus: transfer,
+              formatTransferMetrics,
+            });
+          }
+        } catch {
+          // Non-fatal: file-manager service may be unavailable briefly
+        }
+
+        for (const transferId of getPendingTransferIds()) {
+          if (disposed) return;
+          if (
+            isTransferBeingMonitored(transferId) ||
+            isTransferNotified(transferId)
+          ) {
             continue;
           }
 
-          showTransferCompletionToast(
-            status,
-            t,
-            undefined,
-            formatTransferMetrics,
-          );
-        } catch {
-          clearStalePendingTransfer(transferId);
+          try {
+            const status = await getTransferStatus(transferId);
+            if (disposed) return;
+            if (status.status === "running") {
+              if (!isTransferBeingMonitored(transferId)) {
+                beginTransferProgressMonitoring(transferId, t, {
+                  resumed: true,
+                  initialStatus: status,
+                  formatTransferMetrics,
+                });
+              }
+              continue;
+            }
+
+            showTransferCompletionToast(
+              status,
+              t,
+              undefined,
+              formatTransferMetrics,
+            );
+          } catch (error) {
+            // 仅明确不存在时移除记录，网络异常后仍需恢复监控。
+            const status = (error as { response?: { status?: number } })
+              ?.response?.status;
+            if (!disposed && status === 404)
+              clearStalePendingTransfer(transferId);
+          }
         }
+      } finally {
+        // 慢请求期间不叠加轮询；失败后允许下个周期重新查询。
+        inFlight.current = false;
       }
     };
 
@@ -96,6 +113,7 @@ export function TransferMonitor() {
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
+      disposed = true;
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };

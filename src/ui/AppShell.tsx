@@ -115,7 +115,6 @@ import type {
   TabType,
   Host,
   SplitMode,
-  HostFolder,
   ThemeId,
   FontSizeId,
   SerialConfig,
@@ -148,7 +147,6 @@ import {
 import { RemoteSyncBanner } from "@/components/RemoteSyncBanner.tsx";
 import { MigrationNoticeDialog } from "@/components/MigrationNoticeDialog.tsx";
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
-import type { SSHHostWithStatus } from "@/main-axios";
 import { ServerStatusProvider } from "@/lib/ServerStatusContext";
 import {
   normalizeTerminalDefaultTheme,
@@ -162,8 +160,7 @@ import {
 } from "@/sidebar/HostManagerData";
 import { resolveHostTabType } from "@/lib/host-connection-tabs";
 import { changeAppLanguage } from "@/i18n/i18n";
-import { usePageVisibleInterval } from "@/hooks/use-page-visible-interval";
-import { hasPendingHostNetworkInfo } from "@/lib/host-network-info";
+import { useWorkspaceHosts } from "@/hooks/use-workspace-hosts";
 import { quickConnectHostToPayload } from "@/sidebar/quick-connect-host";
 import { WorkspaceProvider, useWorkspace } from "@/workspace/WorkspaceContext";
 import { WorkspaceTopbar } from "@/workspace/WorkspaceTopbar";
@@ -172,8 +169,6 @@ import { removeWorkspaceHosts } from "@/workspace/project-host-removal";
 import type { TerminalSessionPersistenceState } from "@/features/terminal/terminal-types";
 import {
   deleteWorkspaceProjectFolder,
-  getWorkspaceProjectFolders,
-  getWorkspaceProjectServers,
   moveWorkspaceProjectHosts,
   removeWorkspaceProjectHost,
   renameWorkspaceProjectFolder,
@@ -184,53 +179,6 @@ import {
   shouldRestoreSavedTab,
 } from "@/shell/tab-restore";
 
-function buildHostTree(
-  hosts: SSHHostWithStatus[],
-  folderMeta?: Map<
-    string,
-    { color?: string; icon?: string; credentialId?: number | null }
-  >,
-): HostFolder {
-  const root: HostFolder = { name: "root", children: [] };
-  const folderMap = new Map<string, HostFolder>();
-  const getOrCreateFolder = (path: string): HostFolder => {
-    if (folderMap.has(path)) return folderMap.get(path)!;
-    const parts = path.split(" / ");
-    let current = root;
-    let accumulated = "";
-    for (const part of parts) {
-      accumulated = accumulated ? `${accumulated} / ${part}` : part;
-      if (!folderMap.has(accumulated)) {
-        const meta = folderMeta?.get(accumulated);
-        const folder: HostFolder = {
-          name: part,
-          path: accumulated,
-          color: meta?.color,
-          icon: meta?.icon,
-          credentialId: meta?.credentialId ?? null,
-          children: [],
-        };
-        folderMap.set(accumulated, folder);
-        current.children.push(folder);
-      }
-      current = folderMap.get(accumulated)!;
-    }
-    return current;
-  };
-  // Surface empty folders (created but with no hosts yet) so they stay visible.
-  if (folderMeta) {
-    for (const path of folderMeta.keys()) getOrCreateFolder(path);
-  }
-  for (const h of hosts) {
-    const host = sshHostToHost(h);
-    if (h.folder) {
-      getOrCreateFolder(h.folder).children.push(host);
-    } else {
-      root.children.push(host);
-    }
-  }
-  return root;
-}
 export { tabIcon, renderTabContent } from "@/shell/tabUtils";
 
 type PendingTabClose = {
@@ -286,7 +234,6 @@ function AppShellContent({
     reopenTabsOnLogin: false,
   });
   const [userPrefsLoaded, setUserPrefsLoaded] = useState(false);
-  const [hostsLoaded, setHostsLoaded] = useState(false);
   // Flips to true once the initial DB read (restore or skip) is done — sync must not fire before this
   const [tabsReady, setTabsReady] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -305,14 +252,15 @@ function AppShellContent({
     paneTabIdsRef.current = paneTabIds;
   }, [paneTabIds]);
   const [focusedPaneIndex, setFocusedPaneIndex] = useState<number | null>(null);
-  const [realHostTree, setRealHostTree] = useState<HostFolder | null>(null);
-  const [hostsLoading, setHostsLoading] = useState(true);
-  const [allHosts, setAllHosts] = useState<Host[]>([]);
-  const [projectHostIdsByHostId, setProjectHostIdsByHostId] = useState<
-    Map<string, number>
-  >(new Map());
-  const activeProjectIdRef = useRef(activeProject.id);
-  activeProjectIdRef.current = activeProject.id;
+  const {
+    hostTree: realHostTree,
+    hosts: allHosts,
+    projectHostIdsByHostId,
+    loading: hostsLoading,
+    loaded: hostsLoaded,
+    error: hostsError,
+    reload: loadHosts,
+  } = useWorkspaceHosts(activeProject.id);
   const [isAdmin, setIsAdmin] = useState(false);
   // Remote sync is not yet configurable (added in a later phase), so this
   // is always false for now -- admin/user-management UI stays hidden until
@@ -899,79 +847,6 @@ function AppShellContent({
       .finally(() => setUserPrefsLoaded(true));
   }, []);
 
-  // Load real hosts from API
-  const loadHosts = useCallback(
-    async (background = false) => {
-      const requestedProjectId = activeProject.id;
-      if (!background) {
-        // 项目切换时立即清空上一项目的树，避免异步加载期间短暂显示错项目资产。
-        setHostsLoading(true);
-        setRealHostTree(null);
-        setAllHosts([]);
-        setProjectHostIdsByHostId(new Map());
-      }
-      try {
-        const [raw, projectServers, folders] = await Promise.all([
-          getSSHHosts({ includeStatus: false }),
-          getWorkspaceProjectServers(requestedProjectId),
-          getWorkspaceProjectFolders(requestedProjectId),
-        ]);
-        if (activeProjectIdRef.current !== requestedProjectId) return;
-        const projectServerByHostId = new Map(
-          projectServers.map((server) => [String(server.hostId), server]),
-        );
-        const visibleRaw = raw
-          .filter((host) => projectServerByHostId.has(String(host.id)))
-          .map((host) => {
-            const projectServer = projectServerByHostId.get(String(host.id));
-            return {
-              ...host,
-              projectHostId: projectServer?.projectHostId,
-              sourceName: host.name,
-              sourceFolder: host.folder ?? "",
-              name: projectServer?.name || host.name,
-              folder: projectServer?.folder ?? "",
-              tags: projectServer?.tags ?? host.tags,
-              networkInfo: projectServer?.networkInfo ?? host.networkInfo,
-              linkedProjectCount: projectServer?.linkedProjectCount ?? 1,
-              canDeleteFromAllProjects:
-                projectServer?.canDeleteFromAllProjects ?? !host.isShared,
-            };
-          });
-        const converted = visibleRaw.map(sshHostToHost);
-        setAllHosts(converted);
-        setProjectHostIdsByHostId(
-          new Map(
-            projectServers.map((server) => [
-              String(server.hostId),
-              server.projectHostId,
-            ]),
-          ),
-        );
-        const folderMeta = new Map<
-          string,
-          { color?: string; icon?: string; credentialId?: number | null }
-        >();
-        for (const f of folders) {
-          folderMeta.set(f.path, {
-            color: f.color ?? undefined,
-            icon: f.icon ?? undefined,
-            credentialId: null,
-          });
-        }
-        setRealHostTree(buildHostTree(visibleRaw, folderMeta));
-      } catch {
-        // 首次加载保持空状态；后台补查失败时保留当前主机树。
-      } finally {
-        if (!background && activeProjectIdRef.current === requestedProjectId) {
-          setHostsLoading(false);
-          setHostsLoaded(true);
-        }
-      }
-    },
-    [activeProject.id],
-  );
-
   const canManageProjectFolders = [
     "instance_admin",
     "team_admin",
@@ -1041,31 +916,6 @@ function AppShellContent({
       await deleteWorkspaceProjectFolder(activeProject.id, path);
     },
   };
-
-  useEffect(() => {
-    loadHosts();
-  }, [loadHosts]);
-
-  usePageVisibleInterval(
-    () => void loadHosts(true),
-    3_000,
-    hasPendingHostNetworkInfo(allHosts),
-    { runOnMount: false },
-  );
-
-  useEffect(() => {
-    const onHostsChanged = () => {
-      void loadHosts();
-    };
-    window.addEventListener("termix:hosts-changed", onHostsChanged);
-    window.addEventListener("ssh-hosts:changed", onHostsChanged);
-    window.addEventListener("hosts:refresh", onHostsChanged);
-    return () => {
-      window.removeEventListener("termix:hosts-changed", onHostsChanged);
-      window.removeEventListener("ssh-hosts:changed", onHostsChanged);
-      window.removeEventListener("hosts:refresh", onHostsChanged);
-    };
-  }, [loadHosts]);
 
   // Sync tab host data when allHosts updates (e.g. after editing terminal theme in host settings)
   useEffect(() => {
@@ -2212,6 +2062,8 @@ function AppShellContent({
             onEditHost={editHostInManager}
             hostTree={realHostTree ?? undefined}
             loading={hostsLoading}
+            error={hostsError}
+            onRetry={loadHosts}
             onEditingChange={setSidebarEditing}
             active={railView === "hosts"}
             projectFolderActions={projectFolderActions}

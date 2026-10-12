@@ -246,45 +246,32 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
     const projects = Array.isArray(response.data)
       ? response.data
       : response.data.projects;
-    return Promise.all(
-      projects.map(
-        async (project: {
-          id: string;
-          name: string;
-          kind: "personal" | "team";
-          team: { id: string } | null;
-          role: WorkspaceRole;
-          slug: string;
-          description: string | null;
-          serverCount: number;
-        }) => {
-          const encodedProjectId = encodeWorkspaceProjectId(project.id);
-          const [serversResult, overviewResult] = await Promise.allSettled([
-            authApi.get(`/control-plane/projects/${encodedProjectId}/servers`),
-            authApi.get(`/control-plane/projects/${encodedProjectId}/overview`),
-          ]);
-          const servers =
-            serversResult.status === "fulfilled" &&
-            Array.isArray(serversResult.value.data?.servers)
-              ? serversResult.value.data.servers
-              : [];
-          const memberCount =
-            overviewResult.status === "fulfilled"
-              ? Number(overviewResult.value.data?.counts?.memberCount ?? 1)
-              : 1;
-          return {
-            id: project.id,
-            name: project.name,
-            slug: project.slug,
-            description: project.description,
-            kind: project.kind,
-            teamId: project.team?.id ?? null,
-            role: project.role,
-            hostIds: servers.map((server: { hostId: number }) => server.hostId),
-            memberCount,
-          } satisfies WorkspaceProject;
-        },
-      ),
+    return projects.map(
+      (project: {
+        id: string;
+        name: string;
+        kind: "personal" | "team";
+        team: { id: string } | null;
+        role: WorkspaceRole;
+        slug: string;
+        description: string | null;
+        hostIds: number[];
+        memberCount: number;
+      }) => {
+        // 列表直接携带项目选择器所需摘要，避免启动时逐项目查询详情。
+        requireResolvedWorkspaceProjectId(project.id);
+        return {
+          id: project.id,
+          name: project.name,
+          slug: project.slug,
+          description: project.description,
+          kind: project.kind,
+          teamId: project.team?.id ?? null,
+          role: project.role,
+          hostIds: project.hostIds,
+          memberCount: project.memberCount,
+        } satisfies WorkspaceProject;
+      },
     );
   } catch (error) {
     const status = (error as { response?: { status?: number } }).response

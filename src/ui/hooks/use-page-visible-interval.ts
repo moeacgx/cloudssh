@@ -15,7 +15,7 @@ type Options = {
  * Pauses when the tab is backgrounded; fires once on resume.
  */
 export function usePageVisibleInterval(
-  callback: () => void,
+  callback: () => void | Promise<unknown>,
   intervalMs: number,
   enabled = true,
   options: Options = {},
@@ -23,14 +23,23 @@ export function usePageVisibleInterval(
   const { runOnMount = true } = options;
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
+  const inFlight = useRef(false);
 
   useEffect(() => {
     if (!enabled || intervalMs <= 0) return;
 
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
-    const tick = () => {
-      callbackRef.current();
+    const tick = async () => {
+      if (inFlight.current || !isDocumentVisible()) return;
+      inFlight.current = true;
+      try {
+        await callbackRef.current();
+      } catch {
+        // 具体错误由调用方展示；单次失败不能锁死后续轮询。
+      } finally {
+        inFlight.current = false;
+      }
     };
 
     const start = () => {

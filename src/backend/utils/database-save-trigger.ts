@@ -39,9 +39,8 @@ export class DatabaseSaveTrigger {
     this._dirty = true;
     this.changeVersion += 1;
 
-    if (this.saveTimeout) {
-      clearTimeout(this.saveTimeout);
-    }
+    // 合并窗口从首次修改开始计时，持续活动不能把落盘无限向后推迟。
+    if (this.saveTimeout) return;
 
     this.saveTimeout = setTimeout(async () => {
       this.saveTimeout = null;

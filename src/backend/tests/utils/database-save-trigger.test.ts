@@ -70,6 +70,23 @@ describe("DatabaseSaveTrigger", () => {
     expect(DatabaseSaveTrigger.isDirty).toBe(false);
   });
 
+  it("持续活动不会无限推迟已安排的保存", async () => {
+    vi.useFakeTimers();
+    let value = 0;
+    const snapshots: number[] = [];
+    DatabaseSaveTrigger.initialize(async () => {
+      snapshots.push(value);
+    });
+    value = 1;
+    await DatabaseSaveTrigger.triggerSave("activity");
+    await vi.advanceTimersByTimeAsync(1000);
+    value = 2;
+    await DatabaseSaveTrigger.triggerSave("activity");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(snapshots).toEqual([2]);
+    expect(DatabaseSaveTrigger.isDirty).toBe(false);
+  });
+
   it("propagates force-save failures while allowing the next save to run", async () => {
     const save = vi
       .fn<() => Promise<void>>()

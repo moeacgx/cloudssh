@@ -615,8 +615,7 @@ function createApiInstance(
           userWasAuthenticated = false;
         }
       } else if (!isSilentRetry) {
-        const wasAuthenticated = userWasAuthenticated;
-        dbHealthMonitor.reportDatabaseError(error, wasAuthenticated);
+        dbHealthMonitor.reportDatabaseError(error);
       }
 
       return Promise.reject(error);

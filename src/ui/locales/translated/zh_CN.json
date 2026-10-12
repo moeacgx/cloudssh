@@ -745,6 +745,8 @@
     "newConnection": "新建连接",
     "projectsLoading": "正在加载项目...",
     "projectsLoadFailed": "项目列表加载失败，请稍后重试",
+    "overviewLoadFailed": "概览数据加载失败，请重试",
+    "hostsLoadFailed": "主机数据刷新失败，请重试；已加载的主机会继续显示。",
     "retryProjects": "重试",
     "metrics": {
       "servers": "服务器",

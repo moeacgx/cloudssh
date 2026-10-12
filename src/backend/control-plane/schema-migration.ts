@@ -431,6 +431,20 @@ export function ensureControlPlaneSchema(sqlite: Database.Database): void {
         WHERE request_id IS NOT NULL;
     `);
 
+    // 项目服务器列表按主机读取最新检查，不能复用以用户开头的历史查询索引。
+    if (
+      sqlite
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'host_health_history'",
+        )
+        .get()
+    ) {
+      sqlite.exec(`
+        CREATE INDEX IF NOT EXISTS idx_host_health_history_host_latest
+          ON host_health_history (host_id, ts DESC, id DESC);
+      `);
+    }
+
     const projectHostColumns = sqlite
       .prepare("PRAGMA table_info(project_hosts)")
       .all() as Array<{ name: string }>;

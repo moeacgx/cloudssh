@@ -95,6 +95,26 @@ function resolveRole(
   return null;
 }
 
+function projectMemberCount(projectId: string | typeof projects.id) {
+  return sql<number>`(
+    SELECT COUNT(DISTINCT visible_member_id) FROM (
+      SELECT owner_project.owner_user_id AS visible_member_id
+        FROM projects owner_project WHERE owner_project.id = ${projectId}
+      UNION
+      SELECT user_id FROM project_members WHERE project_id = ${projectId}
+      UNION
+      SELECT team_members.user_id FROM team_members
+        INNER JOIN projects member_project ON member_project.team_id = team_members.team_id
+        WHERE member_project.id = ${projectId}
+      UNION
+      SELECT membership.user_id FROM user_roles membership
+        INNER JOIN project_role_grants member_grant
+          ON member_grant.role_id = membership.role_id
+        WHERE member_grant.project_id = ${projectId}
+    )
+  )`;
+}
+
 export class ProjectRepository {
   constructor(private readonly context: DatabaseContext) {}
 
@@ -129,6 +149,14 @@ export class ProjectRepository {
           SELECT COUNT(*) FROM project_hosts visible_hosts
           WHERE visible_hosts.project_id = ${projects.id}
         )`,
+        hostIds: sql<string>`(
+          SELECT json_group_array(host_id) FROM (
+            SELECT visible_hosts.host_id FROM project_hosts visible_hosts
+            WHERE visible_hosts.project_id = ${projects.id}
+            ORDER BY visible_hosts.host_id
+          )
+        )`,
+        memberCount: projectMemberCount(projects.id),
         resumableSessionCount: sql<number>`(
           SELECT COUNT(*) FROM persistent_sessions visible_sessions
           WHERE visible_sessions.project_id = ${projects.id}
@@ -184,6 +212,8 @@ export class ProjectRepository {
       team: row.teamId ? { id: row.teamId, name: row.teamName } : null,
       role: resolveRole(row, userId, isInstanceAdmin),
       serverCount: Number(row.serverCount),
+      hostIds: JSON.parse(row.hostIds) as number[],
+      memberCount: Number(row.memberCount),
       resumableSessionCount: Number(row.resumableSessionCount),
       updatedAt: row.updatedAt,
     }));
@@ -498,22 +528,7 @@ export class ProjectRepository {
           SELECT COUNT(*) FROM project_hosts overview_hosts
           WHERE overview_hosts.project_id = ${projectId}
         )`,
-        memberCount: sql<number>`(
-          SELECT COUNT(DISTINCT visible_member_id) FROM (
-            SELECT owner_user_id AS visible_member_id FROM projects WHERE id = ${projectId}
-            UNION
-            SELECT user_id FROM project_members WHERE project_id = ${projectId}
-            UNION
-            SELECT team_members.user_id FROM team_members
-              INNER JOIN projects overview_project ON overview_project.team_id = team_members.team_id
-              WHERE overview_project.id = ${projectId}
-            UNION
-            SELECT membership.user_id FROM user_roles membership
-              INNER JOIN project_role_grants overview_grant
-                ON overview_grant.role_id = membership.role_id
-              WHERE overview_grant.project_id = ${projectId}
-          )
-        )`,
+        memberCount: projectMemberCount(projectId),
         activeSessionCount: sql<number>`(
           SELECT COUNT(*) FROM persistent_sessions overview_sessions
           WHERE overview_sessions.project_id = ${projectId}
