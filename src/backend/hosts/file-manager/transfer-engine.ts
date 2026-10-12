@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import { networkInterfaces } from "os";
 import { performance } from "node:perf_hooks";
 import type { ClientChannel } from "ssh2";
 import { fileLogger } from "../../utils/logger.js";
@@ -12,7 +11,6 @@ import {
   joinPath,
   normalizeSftpPath,
   pathsOverlap,
-  sftpPathToLocalPath,
   splitPathSegments,
   type TransferPlatform,
 } from "../transfer-paths.js";
@@ -526,41 +524,6 @@ async function resetDedicatedTransferSessions(
   }
 
   return { sourceSession, destSession, sourceSftp, destSftp };
-}
-
-let cachedLocalAddresses: Set<string> | null = null;
-
-function normalizeHostAddress(host: string): string {
-  const trimmed = host.trim().toLowerCase();
-  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed.split(":")[0] ?? trimmed;
-}
-
-function getLocalAddresses(): Set<string> {
-  if (cachedLocalAddresses) return cachedLocalAddresses;
-
-  const addresses = new Set(["127.0.0.1", "::1", "localhost"]);
-  for (const ifaces of Object.values(networkInterfaces())) {
-    if (!ifaces) continue;
-    for (const iface of ifaces) {
-      if (!iface.internal && iface.family === "IPv4") {
-        addresses.add(iface.address.toLowerCase());
-      }
-    }
-  }
-  cachedLocalAddresses = addresses;
-  return addresses;
-}
-
-export function isLocalSshEndpoint(ip?: string): boolean {
-  if (!ip) return false;
-  const bare = normalizeHostAddress(ip);
-  if (bare === "localhost" || bare === "127.0.0.1" || bare === "::1") {
-    return true;
-  }
-  return getLocalAddresses().has(bare);
 }
 
 function createThrottledProgress(onProgress?: (bytes: number) => void) {
@@ -2075,25 +2038,6 @@ async function runFastSftpCopySegmentedParallel(
   return handles;
 }
 
-function promisifyFastGet(
-  sftp: SFTPWrapper,
-  remotePath: string,
-  localPath: string,
-  opts: {
-    concurrency?: number;
-    chunkSize?: number;
-    fileSize?: number;
-    step?: (totalTransferred: number, chunk: number, total: number) => void;
-  },
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    sftp.fastGet(remotePath, localPath, opts, (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-}
-
 async function pipelinedSftpFile(
   sourceSftp: SFTPWrapper,
   destSftp: SFTPWrapper,
@@ -2306,60 +2250,9 @@ async function pipelinedSftpFile(
   return stats;
 }
 
-/** Source SFTP → local filesystem (skips SFTP write when dest SSH target is this host). */
-async function pipelinedSftpToLocalFile(
-  sourceSftp: SFTPWrapper,
-  sourcePath: string,
-  destPath: string,
-  options: PipelinedXferOptions = {},
-): Promise<PipelinedXferStats> {
-  let fileSize = options.fileSize ?? 0;
-  const stats = createEmptyXferStats();
-  stats.destWriteKind = "local";
-
-  if (!fileSize) {
-    const srcHandle = await promisifySftpOpen(
-      sourceSftp,
-      sourcePath,
-      SFTP_OPEN_READ,
-      0o666,
-    );
-    try {
-      const fstats = await promisifySftpFstat(sourceSftp, srcHandle);
-      fileSize = fstats.size;
-    } finally {
-      await promisifySftpClose(sourceSftp, srcHandle).catch(() => {});
-    }
-  }
-  if (fileSize <= 0) return stats;
-
-  stats.bytes = fileSize;
-  const localPath = sftpPathToLocalPath(destPath);
-  const progress = createThrottledProgress(options.onProgress);
-  const transferStart = Date.now();
-
-  await promisifyFastGet(sourceSftp, sourcePath, localPath, {
-    concurrency: SFTP_XFER_CONCURRENCY,
-    chunkSize: SFTP_XFER_CHUNK_SIZE,
-    fileSize,
-    step: (_total, chunk) => {
-      if (options.shouldAbort?.()) {
-        throw new TransferCancelledError();
-      }
-      progress.add(chunk);
-    },
-  });
-
-  progress.flush();
-  stats.sourceReadSpanMs = elapsedMs(transferStart);
-  stats.destWriteSpanMs = stats.sourceReadSpanMs;
-  return stats;
-}
-
 async function transferFileData(
   sourceSftp: SFTPWrapper,
   destSftp: SFTPWrapper,
-  destSession: SSHSessionLike,
   sourcePath: string,
   destPath: string,
   fileSize: number,
@@ -2380,15 +2273,7 @@ async function transferFileData(
     parallelSegmentCount,
   };
 
-  if (isLocalSshEndpoint(destSession.ip)) {
-    return pipelinedSftpToLocalFile(
-      sourceSftp,
-      sourcePath,
-      destPath,
-      pipeOptions,
-    );
-  }
-
+  // 地址相同不代表文件系统或权限相同，写入始终经过目标 SFTP。
   return pipelinedSftpFile(
     sourceSftp,
     destSftp,
@@ -2458,7 +2343,6 @@ async function transferSingleFile(
   await transferFileData(
     sourceSftp,
     destSftp,
-    destSession,
     sourcePath,
     destPath,
     stats.size,
@@ -2600,7 +2484,6 @@ async function transferViaTar(
     const fileStats = await transferFileData(
       sourceSftp,
       destSftp,
-      destSession,
       tempArchive,
       tempArchive,
       archiveSize,
@@ -2738,7 +2621,6 @@ async function transferViaItemSftp(
       const itemXferStats = await transferFileData(
         sourceSftp,
         destSftp,
-        destSession,
         item.sourcePath,
         item.destPath,
         itemStats.size,

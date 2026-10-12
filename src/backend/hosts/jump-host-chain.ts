@@ -1,5 +1,5 @@
 import { Client as SSHClient } from "ssh2";
-import { createCurrentHostResolutionRepository } from "../database/repositories/factory.js";
+import { resolveHostById } from "./host-resolver.js";
 import { fileLogger } from "../utils/logger.js";
 import {
   createSocks5Connection,
@@ -35,64 +35,11 @@ async function resolveJumpHost(
   userId: string,
 ): Promise<JumpHostConfig | null> {
   try {
-    const repository = createCurrentHostResolutionRepository();
-    const ownerId = (await repository.findHostOwnerId(hostId)) ?? userId;
-    const resolvedHost = await repository.findHostById(hostId, ownerId);
-
-    if (!resolvedHost) {
-      return null;
-    }
-
-    const host = resolvedHost as Record<string, unknown>;
-
-    if (host.credentialId) {
-      if (userId !== ownerId) {
-        try {
-          const { SharedHostSecretsManager } =
-            await import("../utils/shared-host-secrets-manager.js");
-          const secret =
-            await SharedHostSecretsManager.getInstance().getSecretForUser(
-              hostId,
-              userId,
-              "ssh",
-            );
-          if (secret) {
-            return {
-              ...host,
-              password: secret.password,
-              key: secret.key,
-              keyPassword: secret.keyPassword,
-              keyType: secret.keyType,
-              authType: secret.key
-                ? "key"
-                : secret.password
-                  ? "password"
-                  : "none",
-            } as JumpHostConfig;
-          }
-        } catch {
-          // fall through to owner credential lookup
-        }
-      }
-
-      const credential = (await repository.findCredentialByIdForUser(
-        host.credentialId as number,
-        ownerId,
-      )) as Record<string, unknown> | null;
-
-      if (credential) {
-        return {
-          ...host,
-          password: credential.password as string | undefined,
-          key: (credential.key || credential.privateKey) as string | undefined,
-          keyPassword: credential.keyPassword as string | undefined,
-          keyType: credential.keyType as string | undefined,
-          authType: credential.authType as string | undefined,
-        } as JumpHostConfig;
-      }
-    }
-
-    return host as JumpHostConfig;
+    // 复用完整的主机连接授权与项目/共享凭据解析，禁止按所有者身份直接解密。
+    return (await resolveHostById(
+      hostId,
+      userId,
+    )) as unknown as JumpHostConfig | null;
   } catch (error) {
     fileLogger.error("Failed to resolve jump host", error, {
       operation: "resolve_jump_host",

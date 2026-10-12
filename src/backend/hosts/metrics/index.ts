@@ -1435,7 +1435,7 @@ function createSshFactory(host: SSHHostWithCredentials): () => Promise<Client> {
     if (hasJumpHosts) {
       jumpClient = await createJumpHostChain(
         host.jumpHosts!,
-        host.userId!,
+        getHostAccessUserId(host),
         proxyConfig,
       );
 
@@ -2579,7 +2579,7 @@ app.post("/metrics/start/:id", validateHostId, async (req, res) => {
             "Connecting via jump host chain",
           ),
         );
-        createJumpHostChain(host.jumpHosts!, host.userId!)
+        createJumpHostChain(host.jumpHosts!, userId)
           .then((jumpClient) => {
             jumpClient.forwardOut(
               "127.0.0.1",

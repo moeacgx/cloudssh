@@ -1,6 +1,13 @@
-/* eslint-disable react-refresh/only-export-components */
 import { prepareClientCacheVersion } from "@/lib/client-cache-version";
-import { StrictMode, Suspense, lazy, useState, useRef, useEffect } from "react";
+import {
+  StrictMode,
+  Suspense,
+  lazy,
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+} from "react";
 import { createRoot } from "react-dom/client";
 import "./ui/index.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -133,8 +140,14 @@ function FullscreenApp() {
 
 function FullscreenAppGate() {
   const { t } = useTranslation();
-  const [ready, setReady] = useState(false);
-  const [authFailed, setAuthFailed] = useState(false);
+  const [status, setStatus] = useState<
+    "verifying" | "ready" | "auth-required" | "retry"
+  >("verifying");
+  const [attempt, setAttempt] = useState(0);
+  const retryVerification = useCallback(() => {
+    setStatus("verifying");
+    setAttempt((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +155,7 @@ function FullscreenAppGate() {
     appReadyPromise
       .then(() => getUserInfo())
       .then(async () => {
+        if (cancelled) return;
         if (isElectron()) {
           try {
             const token = await getCurrentToken();
@@ -150,27 +164,63 @@ function FullscreenAppGate() {
             // WebSocket connections can still fall back to cookie auth.
           }
         }
-        if (!cancelled) setReady(true);
+        if (!cancelled) setStatus("ready");
       })
-      .catch(() => {
-        if (!cancelled) setAuthFailed(true);
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const failure = error as {
+          status?: number;
+          response?: { status?: number };
+        };
+        const httpStatus = failure?.status ?? failure?.response?.status;
+        if (httpStatus === 401 || httpStatus === 403) {
+          clearStoredAuth();
+          setStatus("auth-required");
+        } else {
+          // 网络错误不能证明会话失效，但也不能放行受保护应用。
+          setStatus("retry");
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  if (authFailed) {
-    return <FullscreenApp />;
+  if (status === "auth-required") {
+    return (
+      <>
+        <Auth onLogin={retryVerification} />
+        <Toaster position="bottom-right" />
+      </>
+    );
   }
 
-  if (!ready) {
+  if (status !== "ready") {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+          {status === "retry" ? (
+            <>
+              <p role="alert" className="text-sm text-muted-foreground">
+                {t("common.connectionDegraded")}
+              </p>
+              <button
+                type="button"
+                className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
+                onClick={retryVerification}
+              >
+                {t("common.retry")}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-muted-foreground">
+                {t("common.loading")}
+              </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -394,7 +444,7 @@ function App() {
   );
 }
 
-function RootApp() {
+export function RootApp() {
   const [showVersionCheck, setShowVersionCheck] = useState(true);
 
   useServiceWorker();

@@ -1,4 +1,5 @@
 import express from "express";
+import { validateFileManagerConnectInput } from "./connect-input.js";
 import { createCorsMiddleware } from "../../utils/cors-config.js";
 import cookieParser from "cookie-parser";
 import axios from "axios";
@@ -449,6 +450,7 @@ app.use("/ssh/file_manager/ssh", (req, res, next) => {
  *       500:
  *         description: SSH connection failed.
  */
+app.post("/ssh/file_manager/ssh/connect", validateFileManagerConnectInput);
 app.post("/ssh/file_manager/ssh/connect", async (req, res) => {
   const {
     sessionId,

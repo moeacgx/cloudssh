@@ -274,6 +274,60 @@ beforeEach(() => {
 });
 
 describe("shared project host updates", () => {
+  it.each(["POST", "PUT"])(
+    "%s 在保存前拒绝无连接权限的跳板",
+    async (method) => {
+      state.canAccessHost.mockImplementation(async (_userId, hostId) => ({
+        hasAccess: hostId !== 99,
+        isShared: true,
+        permissionLevel: "manage",
+      }));
+      const response = await request(
+        method === "POST" ? "/db/host" : "/db/host/7",
+        {
+          method,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ip: "10.0.0.7",
+            port: 22,
+            authType: "none",
+            jumpHosts: [{ hostId: 99 }],
+          }),
+        },
+      );
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({
+        code: "JUMP_HOST_ACCESS_DENIED",
+      });
+      expect(
+        state.updateNonSensitiveForUserWithProjectMetadata,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { jumpHosts: {} },
+    { jumpHosts: [{ hostId: "9" }] },
+    { jumpHosts: [{ hostId: -1 }] },
+    { jumpHosts: [null] },
+  ])("拒绝无效跳板配置 %j", async ({ jumpHosts }) => {
+    const response = await request("/db/host/7", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ip: "10.0.0.7",
+        port: 22,
+        authType: "none",
+        jumpHosts,
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_JUMP_HOSTS" });
+    expect(
+      state.updateNonSensitiveForUserWithProjectMetadata,
+    ).not.toHaveBeenCalled();
+  });
+
   it("persists Docker settings without requiring the host owner data key", async () => {
     const response = await request("/db/host/7", {
       method: "PUT",
@@ -308,9 +362,15 @@ describe("shared project host updates", () => {
         vncPort: 5900,
         telnetPort: 23,
         defaultPath: "/",
+        jumpHosts: [{ hostId: 9 }],
       }),
     });
     expect(response.status).toBe(200);
+    expect(state.canAccessHost).toHaveBeenCalledWith(
+      "project-admin",
+      9,
+      "connect",
+    );
     await expect(response.json()).resolves.toMatchObject({
       id: 7,
       isShared: true,
