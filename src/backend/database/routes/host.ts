@@ -6,6 +6,7 @@ import multer from "multer";
 import { sshLogger, databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { PermissionManager } from "../../utils/permission-manager.js";
+import { validateJumpHostAccess } from "../../hosts/jump-host-access.js";
 import { DataCrypto } from "../../utils/data-crypto.js";
 import { parseSSHKey } from "../../utils/ssh-key-utils.js";
 import {
@@ -473,6 +474,16 @@ router.post(
         isValidPort: isValidPort(port),
       });
       return res.status(400).json({ error: "Invalid SSH data" });
+    }
+
+    const jumpHostError = await validateJumpHostAccess(jumpHosts, userId);
+    if (jumpHostError) {
+      return res
+        .status(jumpHostError === "INVALID_JUMP_HOSTS" ? 400 : 403)
+        .json({
+          error: "Invalid or inaccessible jump hosts",
+          code: jumpHostError,
+        });
     }
 
     const effectiveConnectionType = connectionType || "ssh";
@@ -1342,6 +1353,16 @@ router.put(
         isValidPort: isValidPort(port),
       });
       return res.status(400).json({ error: "Invalid SSH data" });
+    }
+
+    const jumpHostError = await validateJumpHostAccess(jumpHosts, userId);
+    if (jumpHostError) {
+      return res
+        .status(jumpHostError === "INVALID_JUMP_HOSTS" ? 400 : 403)
+        .json({
+          error: "Invalid or inaccessible jump hosts",
+          code: jumpHostError,
+        });
     }
 
     const effectiveAuthType = authType || authMethod;

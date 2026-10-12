@@ -37,5 +37,8 @@ describe("文件管理会话隔离", () => {
   it("只有会话所有者可以复用或关闭会话", () => {
     expect(isFileManagerSessionOwner("user-a", "user-a")).toBe(true);
     expect(isFileManagerSessionOwner("user-a", "user-b")).toBe(false);
+    expect(isFileManagerSessionOwner(undefined, "user-a")).toBe(false);
+    expect(isFileManagerSessionOwner("", "user-a")).toBe(false);
+    expect(isFileManagerSessionOwner("", "")).toBe(false);
   });
 });

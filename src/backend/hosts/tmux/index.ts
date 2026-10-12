@@ -391,7 +391,8 @@ async function requireHost(
       .json({ error: "Tmux Monitor is not enabled for this host" });
     return null;
   }
-  return host;
+  // 此后的跳板授权、主机密钥验证和连接池均必须使用当前请求人。
+  return { ...host, userId };
 }
 
 function toErrorMessage(err: unknown): string {

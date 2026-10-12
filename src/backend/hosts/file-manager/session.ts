@@ -100,7 +100,7 @@ export function isFileManagerSessionOwner(
   ownerUserId: string | undefined,
   requestUserId: string,
 ): boolean {
-  return !ownerUserId || ownerUserId === requestUserId;
+  return Boolean(ownerUserId && requestUserId && ownerUserId === requestUserId);
 }
 
 export function execWithSudo(

@@ -109,17 +109,28 @@ export function registerLDAPAuthRoutes(router: Router): void {
    *         description: Provider not found.
    */
   router.post("/ldap/login", async (req, res) => {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ error: "Invalid LDAP login fields" });
+    }
     const { providerId, username, password, rememberMe } = req.body as {
-      providerId: number;
-      username: string;
-      password: string;
-      rememberMe?: boolean;
+      providerId?: unknown;
+      username?: unknown;
+      password?: unknown;
+      rememberMe?: unknown;
     };
 
-    if (!providerId || !username || !password) {
-      return res
-        .status(400)
-        .json({ error: "providerId, username, and password are required" });
+    // 在任何供应商查询和 LDAP 连接前检查类型，禁止查询层隐式转换。
+    if (
+      typeof providerId !== "number" ||
+      !Number.isSafeInteger(providerId) ||
+      providerId <= 0 ||
+      typeof username !== "string" ||
+      !username ||
+      typeof password !== "string" ||
+      !password ||
+      (rememberMe !== undefined && typeof rememberMe !== "boolean")
+    ) {
+      return res.status(400).json({ error: "Invalid LDAP login fields" });
     }
 
     try {
@@ -376,7 +387,7 @@ export function registerLDAPAuthRoutes(router: Router): void {
       const token = await authManager.generateJWTToken(userRecord.id, {
         deviceType: deviceInfo.type,
         deviceInfo: deviceInfo.deviceInfo,
-        rememberMe: rememberMe || false,
+        rememberMe: rememberMe === true,
       });
 
       authLogger.success("LDAP login successful", {
