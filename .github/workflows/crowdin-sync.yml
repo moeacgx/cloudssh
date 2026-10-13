@@ -28,19 +28,19 @@ jobs:
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Checkout branch
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ steps.branch.outputs.name }}
           fetch-depth: 0
           token: ${{ secrets.GHCR_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7.1.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Upload sources to Crowdin
-        uses: crowdin/github-action@v2
+        uses: crowdin/github-action@v3
         with:
           upload_sources: true
           upload_translations: false
@@ -58,7 +58,7 @@ jobs:
         run: node scripts/crowdin-pretranslate.cjs
 
       - name: Download translations from Crowdin
-        uses: crowdin/github-action@v2
+        uses: crowdin/github-action@v3
         with:
           upload_sources: false
           upload_translations: false
