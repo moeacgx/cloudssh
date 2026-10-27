@@ -1,4 +1,5 @@
 import express, { type Response } from "express";
+import type { ProjectHostMigrationCredential } from "./credential-repository.js";
 import type { AuthenticatedRequest } from "../../types/index.js";
 import { getRequestMeta, type AuditLogParams } from "../utils/audit-logger.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -24,6 +25,11 @@ export interface ManagementRouterDependencies {
   initializeProjectHostCredential: (
     input: ProjectHostCredentialInitialization,
   ) => Promise<void>;
+  prepareHostMigrationCredential: (
+    sourceProjectId: string,
+    sourceProjectHostId: number,
+    targetProjectId: string,
+  ) => Promise<ProjectHostMigrationCredential>;
   audit: (entry: AuditLogParams) => Promise<void>;
   findTerminalSessions: (filter: TerminalSessionFilter) => readonly unknown[];
   terminalLifecycleCoordinator: Pick<
@@ -314,6 +320,89 @@ export function createManagementRouter(
           "admin_personal_workspace_view",
           userId,
         );
+      }
+    },
+  );
+
+  router.post(
+    "/projects/:projectId/servers/:projectHostId/migrate",
+    async (req: AuthenticatedRequest, res) => {
+      const userId = req.userId;
+      try {
+        const isInstanceAdmin = await adminStatus(dependencies, userId);
+        const repository = dependencies.createRepository();
+        const sourceProjectId = param(req, "projectId");
+        const sourceProjectHostId = positiveIntegerParam(req, "projectHostId");
+        const targetProjectId = requiredString(
+          req.body?.targetProjectId,
+          "targetProjectId",
+          128,
+        );
+        const migrationTarget = repository.getProjectHostMigrationTarget(
+          sourceProjectId,
+          targetProjectId,
+          userId,
+          isInstanceAdmin,
+          sourceProjectHostId,
+        );
+        const server =
+          await dependencies.terminalLifecycleCoordinator.runDestructiveOperation(
+            {
+              hostIds: [migrationTarget.hostId],
+              projectHostIds: [sourceProjectHostId],
+            },
+            async () => {
+              const currentTarget = repository.getProjectHostMigrationTarget(
+                sourceProjectId,
+                targetProjectId,
+                userId,
+                isInstanceAdmin,
+                sourceProjectHostId,
+              );
+              if (
+                dependencies.findTerminalSessions({
+                  projectHostId: sourceProjectHostId,
+                }).length > 0
+              ) {
+                throw new ControlPlaneManagementError(
+                  409,
+                  "Project host still has active terminal sessions",
+                );
+              }
+              let credential: ProjectHostMigrationCredential | null = null;
+              if (currentTarget.connectionType === "ssh") {
+                try {
+                  credential =
+                    await dependencies.prepareHostMigrationCredential(
+                      sourceProjectId,
+                      sourceProjectHostId,
+                      targetProjectId,
+                    );
+                } catch {
+                  throw new ControlPlaneManagementError(
+                    409,
+                    "Host credentials could not be prepared for target project",
+                  );
+                }
+              }
+              const migrated = repository.migrateProjectHost(
+                sourceProjectId,
+                targetProjectId,
+                userId,
+                isInstanceAdmin,
+                sourceProjectHostId,
+                credential,
+              );
+              dependencies.terminalLifecycleCoordinator.retire({
+                projectHostIds: [sourceProjectHostId],
+              });
+              return migrated;
+            },
+          );
+        await dependencies.afterMutation("project_host_migrate");
+        return res.json({ server });
+      } catch (error) {
+        return respondError(res, error, "project_host_migrate", userId);
       }
     },
   );

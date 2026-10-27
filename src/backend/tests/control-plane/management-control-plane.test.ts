@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import { ManagementRepository } from "../../control-plane/management-repository.js";
 import { ProjectRepository } from "../../control-plane/project-repository.js";
+import { ProjectCredentialRepository } from "../../control-plane/credential-repository.js";
+import { PlatformCredentialVault } from "../../control-plane/credential-vault.js";
 import { createControlPlaneRouter } from "../../control-plane/routes.js";
 import { ensureControlPlaneSchema } from "../../control-plane/schema-migration.js";
 import type { DatabaseContext } from "../../database/repositories/database-context.js";
@@ -18,6 +20,9 @@ describe("云 SSH 控制面写接口", () => {
   let baseUrl: string;
   let notifyHostDeleted: ReturnType<typeof vi.fn>;
   let initializeProjectHostCredential: ReturnType<typeof vi.fn>;
+  let prepareHostMigrationCredential: ReturnType<typeof vi.fn>;
+  let credentials: ProjectCredentialRepository;
+  let vault: PlatformCredentialVault;
   let audit: ReturnType<typeof vi.fn>;
   let findTerminalSessions: ReturnType<typeof vi.fn>;
   let terminalLifecycleCoordinator: TerminalSessionLifecycleCoordinator;
@@ -49,7 +54,9 @@ describe("云 SSH 控制面写接口", () => {
         password TEXT,
         key TEXT,
         credential_id INTEGER,
-        sync_id TEXT
+        sync_id TEXT,
+        port_knock_sequence TEXT,
+        host_key_fingerprint TEXT
       );
       CREATE TABLE session_recordings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +115,12 @@ describe("云 SSH 控制面写接口", () => {
     management = new ManagementRepository(context);
     notifyHostDeleted = vi.fn().mockResolvedValue(undefined);
     initializeProjectHostCredential = vi.fn().mockResolvedValue(undefined);
+    vault = new PlatformCredentialVault(Buffer.alloc(32, 9));
+    credentials = new ProjectCredentialRepository(context, vault);
+    prepareHostMigrationCredential = vi.fn(
+      (source: string, host: number, target: string) =>
+        credentials.prepareHostMigrationCredential(source, host, target),
+    );
     audit = vi.fn(async () => undefined);
     findTerminalSessions = vi.fn().mockReturnValue([]);
     terminalLifecycleCoordinator = new TerminalSessionLifecycleCoordinator();
@@ -130,6 +143,7 @@ describe("云 SSH 控制面写接口", () => {
         afterMutation: async () => {},
         notifyHostDeleted,
         initializeProjectHostCredential,
+        prepareHostMigrationCredential,
         audit,
         findTerminalSessions,
         terminalLifecycleCoordinator,
@@ -1071,6 +1085,538 @@ describe("云 SSH 控制面写接口", () => {
       context.sqlite!.prepare("SELECT id FROM ssh_data WHERE id = 7").get(),
     ).toEqual({ id: 7 });
     expect(notifyHostDeleted).not.toHaveBeenCalled();
+  });
+
+  async function seedMigrationCredential(
+    projectId: string,
+    projectHostId: number,
+  ) {
+    return credentials.ensureForProjectHost({
+      projectId,
+      projectHostId,
+      hostName: "Owner host",
+      username: "project-user",
+      authType: "password",
+      secret: { password: "project-password" },
+      createdBy: "owner",
+    });
+  }
+
+  async function migrationFixture() {
+    const source = await createTeamAndProject();
+    const targetProjectId = (
+      await (
+        await request(`/teams/${source.teamId}/projects`, "owner", {
+          method: "POST",
+          body: JSON.stringify({ name: "Target", slug: "target" }),
+        })
+      ).json()
+    ).project.id as string;
+    const linked = management.associateHost(
+      source.projectId,
+      "owner",
+      false,
+      7,
+      "源别名",
+    );
+    const credential = await seedMigrationCredential(
+      source.projectId,
+      linked.projectHostId,
+    );
+    return {
+      sourceProjectId: source.projectId,
+      targetProjectId,
+      sourceProjectHostId: linked.projectHostId,
+      sourceCredentialId: credential.credentialId,
+      migrate: (userId = "owner", target = targetProjectId) =>
+        request(
+          `/projects/${source.projectId}/servers/${linked.projectHostId}/migrate`,
+          userId,
+          { method: "POST", body: JSON.stringify({ targetProjectId: target }) },
+        ),
+    };
+  }
+
+  it("迁移项目主机时保留底层主机并转移项目元数据", async () => {
+    const source = await createTeamAndProject();
+    const targetProjectId = (
+      await (
+        await request(`/teams/${source.teamId}/projects`, "owner", {
+          method: "POST",
+          body: JSON.stringify({ name: "Staging", slug: "staging" }),
+        })
+      ).json()
+    ).project.id as string;
+    const sourceLinkResponse = await request(
+      `/projects/${source.projectId}/servers`,
+      "owner",
+      {
+        method: "POST",
+        body: JSON.stringify({ hostId: 7 }),
+      },
+    );
+    const sourceProjectHostId = (await sourceLinkResponse.json()).server
+      .projectHostId as number;
+    await seedMigrationCredential(source.projectId, sourceProjectHostId);
+    context
+      .sqlite!.prepare(
+        "UPDATE project_hosts SET alias = ?, folder = ?, tags = ? WHERE id = ?",
+      )
+      .run("生产入口", "线上 / Web", "生产,关键服务", sourceProjectHostId);
+
+    const migrated = await request(
+      `/projects/${source.projectId}/servers/${sourceProjectHostId}/migrate`,
+      "owner",
+      {
+        method: "POST",
+        body: JSON.stringify({ targetProjectId }),
+      },
+    );
+
+    expect(migrated.status).toBe(200);
+    const migratedServer = (await migrated.json()).server;
+    expect(migratedServer).toMatchObject({
+      hostId: 7,
+      name: "生产入口",
+      folder: "线上 / Web",
+    });
+    expect(migratedServer.projectHostId).not.toBe(sourceProjectHostId);
+    expect(prepareHostMigrationCredential).toHaveBeenCalledWith(
+      source.projectId,
+      sourceProjectHostId,
+      targetProjectId,
+    );
+    expect(
+      await credentials.resolveForProjectHost(migratedServer.projectHostId),
+    ).toMatchObject({
+      username: "project-user",
+      secret: { password: "project-password" },
+    });
+
+    const links = context
+      .sqlite!.prepare(
+        `SELECT project_id AS projectId, host_id AS hostId, alias, folder, tags
+           FROM project_hosts WHERE host_id = 7`,
+      )
+      .all();
+    expect(links).toEqual([
+      {
+        projectId: targetProjectId,
+        hostId: 7,
+        alias: "生产入口",
+        folder: "线上 / Web",
+        tags: "生产,关键服务",
+      },
+    ]);
+    expect(
+      context.sqlite!.prepare("SELECT id FROM ssh_data WHERE id = 7").get(),
+    ).toEqual({ id: 7 });
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT project_id FROM project_folders WHERE project_id = ? AND path = ?",
+        )
+        .get(targetProjectId, "线上 / Web"),
+    ).toEqual({ project_id: targetProjectId });
+  });
+
+  it("目标项目凭据准备失败时保留源关联并清理目标关联", async () => {
+    const source = await createTeamAndProject();
+    const targetProjectId = (
+      await (
+        await request(`/teams/${source.teamId}/projects`, "owner", {
+          method: "POST",
+          body: JSON.stringify({ name: "Staging", slug: "staging" }),
+        })
+      ).json()
+    ).project.id as string;
+    const sourceLinkResponse = await request(
+      `/projects/${source.projectId}/servers`,
+      "owner",
+      {
+        method: "POST",
+        body: JSON.stringify({ hostId: 7 }),
+      },
+    );
+    const sourceProjectHostId = (await sourceLinkResponse.json()).server
+      .projectHostId as number;
+    await seedMigrationCredential(source.projectId, sourceProjectHostId);
+    prepareHostMigrationCredential.mockRejectedValueOnce(
+      new Error("credential vault unavailable"),
+    );
+
+    const migrated = await request(
+      `/projects/${source.projectId}/servers/${sourceProjectHostId}/migrate`,
+      "owner",
+      {
+        method: "POST",
+        body: JSON.stringify({ targetProjectId }),
+      },
+    );
+
+    expect(migrated.status).toBe(409);
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT project_id AS projectId FROM project_hosts WHERE host_id = 7",
+        )
+        .all(),
+    ).toEqual([{ projectId: source.projectId }]);
+  });
+
+  it("有持久会话历史时拒绝迁移且不创建目标关联", async () => {
+    const source = await createTeamAndProject();
+    const targetProjectId = (
+      await (
+        await request(`/teams/${source.teamId}/projects`, "owner", {
+          method: "POST",
+          body: JSON.stringify({ name: "Staging", slug: "staging" }),
+        })
+      ).json()
+    ).project.id as string;
+    const sourceLinkResponse = await request(
+      `/projects/${source.projectId}/servers`,
+      "owner",
+      {
+        method: "POST",
+        body: JSON.stringify({ hostId: 7 }),
+      },
+    );
+    const sourceProjectHostId = (await sourceLinkResponse.json()).server
+      .projectHostId as number;
+    await seedMigrationCredential(source.projectId, sourceProjectHostId);
+    context
+      .sqlite!.prepare(
+        `INSERT INTO persistent_sessions
+         (id, project_id, project_host_id, owner_user_id, service_account_id, tmux_name)
+         VALUES ('migration-history', ?, ?, 'owner', NULL, 'migration-history')`,
+      )
+      .run(source.projectId, sourceProjectHostId);
+
+    initializeProjectHostCredential.mockClear();
+    const migrated = await request(
+      `/projects/${source.projectId}/servers/${sourceProjectHostId}/migrate`,
+      "owner",
+      {
+        method: "POST",
+        body: JSON.stringify({ targetProjectId }),
+      },
+    );
+
+    expect(migrated.status).toBe(409);
+    expect(initializeProjectHostCredential).not.toHaveBeenCalled();
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT project_id AS projectId FROM project_hosts WHERE host_id = 7",
+        )
+        .all(),
+    ).toEqual([{ projectId: source.projectId }]);
+  });
+
+  it("迁移手工项目凭据时保留实际认证材料且不修改源项目共享凭据", async () => {
+    const fixture = await migrationFixture();
+    const manual = await credentials.create({
+      projectId: fixture.sourceProjectId,
+      name: "手工专用凭据",
+      username: "deploy",
+      authType: "key",
+      keyType: "ssh-ed25519",
+      secret: {
+        privateKey: "PROJECT-PRIVATE-KEY",
+        passphrase: "project-passphrase",
+      },
+      createdBy: "owner",
+    });
+    await credentials.assignToProjectHost(
+      fixture.sourceProjectId,
+      fixture.sourceProjectHostId,
+      manual.id,
+    );
+    const otherHost = management.associateHost(
+      fixture.sourceProjectId,
+      "admin",
+      true,
+      8,
+      null,
+    );
+    await credentials.assignToProjectHost(
+      fixture.sourceProjectId,
+      otherHost.projectHostId,
+      manual.id,
+    );
+    const original = context
+      .sqlite!.prepare("SELECT * FROM project_credentials WHERE id = ?")
+      .get(manual.id);
+    const response = await fixture.migrate();
+    expect(response.status).toBe(200);
+    const migrated = (await response.json()).server;
+    const resolved = await credentials.resolveForProjectHost(
+      migrated.projectHostId,
+    );
+    expect(resolved).toMatchObject({
+      projectId: fixture.targetProjectId,
+      managed: false,
+      username: "deploy",
+      authType: "key",
+      keyType: "ssh-ed25519",
+      secret: {
+        privateKey: "PROJECT-PRIVATE-KEY",
+        passphrase: "project-passphrase",
+      },
+    });
+    const target = context
+      .sqlite!.prepare(
+        "SELECT encrypted_secret AS ciphertext FROM project_credentials WHERE id = ?",
+      )
+      .get(resolved!.credentialId) as { ciphertext: string };
+    expect(target.ciphertext).not.toContain("PROJECT-PRIVATE-KEY");
+    expect(() =>
+      vault.decrypt(
+        resolved!.credentialId,
+        fixture.sourceProjectId,
+        target.ciphertext,
+      ),
+    ).toThrow();
+    expect(
+      context
+        .sqlite!.prepare("SELECT * FROM project_credentials WHERE id = ?")
+        .get(manual.id),
+    ).toEqual(original);
+    expect(
+      await credentials.resolveForProjectHost(otherHost.projectHostId),
+    ).toMatchObject({
+      credentialId: manual.id,
+      secret: { privateKey: "PROJECT-PRIVATE-KEY" },
+    });
+  });
+
+  it("迁移保留第三个项目的主机关联和凭据", async () => {
+    const fixture = await migrationFixture();
+    const personal = management.bootstrapPersonalProject("owner").project;
+    const third = management.associateHost(
+      personal.id,
+      "owner",
+      false,
+      7,
+      "第三项目",
+    );
+    await seedMigrationCredential(personal.id, third.projectHostId);
+    const before = context
+      .sqlite!.prepare("SELECT * FROM project_hosts WHERE id = ?")
+      .get(third.projectHostId);
+    const beforeCredential = await credentials.resolveForProjectHost(
+      third.projectHostId,
+    );
+    expect((await fixture.migrate()).status).toBe(200);
+    expect(
+      context
+        .sqlite!.prepare("SELECT * FROM project_hosts WHERE id = ?")
+        .get(third.projectHostId),
+    ).toEqual(before);
+    expect(
+      await credentials.resolveForProjectHost(third.projectHostId),
+    ).toEqual(beforeCredential);
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT COUNT(*) AS count FROM project_hosts WHERE host_id = 7",
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+  });
+
+  it("迁移提交失败时事务回滚关联、凭据和新文件夹", async () => {
+    const fixture = await migrationFixture();
+    context
+      .sqlite!.prepare(
+        "UPDATE project_hosts SET folder = '原文件夹' WHERE id = ?",
+      )
+      .run(fixture.sourceProjectHostId);
+    const before = context
+      .sqlite!.prepare("SELECT * FROM project_credentials WHERE id = ?")
+      .get(fixture.sourceCredentialId);
+    context.sqlite!
+      .exec(`CREATE TRIGGER fail_migration BEFORE DELETE ON project_hosts
+      BEGIN SELECT RAISE(ABORT, 'migration commit failed'); END`);
+    expect((await fixture.migrate()).status).toBe(500);
+    expect(
+      await credentials.resolveForProjectHost(fixture.sourceProjectHostId),
+    ).toMatchObject({
+      credentialId: fixture.sourceCredentialId,
+      secret: { password: "project-password" },
+    });
+    expect(
+      context
+        .sqlite!.prepare("SELECT * FROM project_credentials WHERE id = ?")
+        .get(fixture.sourceCredentialId),
+    ).toEqual(before);
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT COUNT(*) AS count FROM project_hosts WHERE project_id = ?",
+        )
+        .get(fixture.targetProjectId),
+    ).toEqual({ count: 0 });
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT COUNT(*) AS count FROM project_credentials WHERE project_id = ?",
+        )
+        .get(fixture.targetProjectId),
+    ).toEqual({ count: 0 });
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT COUNT(*) AS count FROM project_folders WHERE project_id = ?",
+        )
+        .get(fixture.targetProjectId),
+    ).toEqual({ count: 0 });
+  });
+
+  it("准备目标凭据期间不暴露目标关联并拒绝过期凭据快照", async () => {
+    const fixture = await migrationFixture();
+    prepareHostMigrationCredential.mockImplementationOnce(
+      async (source: string, host: number, target: string) => {
+        const prepared = await credentials.prepareHostMigrationCredential(
+          source,
+          host,
+          target,
+        );
+        expect(
+          context
+            .sqlite!.prepare(
+              "SELECT COUNT(*) AS count FROM project_hosts WHERE project_id = ?",
+            )
+            .get(target),
+        ).toEqual({ count: 0 });
+        expect(() =>
+          terminalLifecycleCoordinator.assertSessionCreationAllowed({
+            hostIds: [7],
+          }),
+        ).toThrow();
+        await credentials.ensureForProjectHost({
+          projectId: source,
+          projectHostId: host,
+          hostName: "Owner host",
+          username: "project-user",
+          authType: "password",
+          secret: { password: "rotated-password" },
+          createdBy: "owner",
+        });
+        return prepared;
+      },
+    );
+    expect((await fixture.migrate()).status).toBe(409);
+    expect(
+      await credentials.resolveForProjectHost(fixture.sourceProjectHostId),
+    ).toMatchObject({ secret: { password: "rotated-password" } });
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT COUNT(*) AS count FROM project_hosts WHERE project_id = ?",
+        )
+        .get(fixture.targetProjectId),
+    ).toEqual({ count: 0 });
+  });
+
+  it("迁移拒绝相同项目、重复目标及活动终端", async () => {
+    const fixture = await migrationFixture();
+    expect(
+      (await fixture.migrate("owner", fixture.sourceProjectId)).status,
+    ).toBe(400);
+    findTerminalSessions.mockReturnValue([{}]);
+    expect((await fixture.migrate()).status).toBe(409);
+    findTerminalSessions.mockReturnValue([]);
+    management.associateHost(fixture.targetProjectId, "owner", false, 7, null);
+    expect((await fixture.migrate()).status).toBe(409);
+    expect(prepareHostMigrationCredential).not.toHaveBeenCalled();
+    expect(
+      await credentials.resolveForProjectHost(fixture.sourceProjectHostId),
+    ).toMatchObject({ credentialId: fixture.sourceCredentialId });
+  });
+
+  it("固定窗口或缺失项目凭据时拒绝迁移且保持源关联", async () => {
+    const fixture = await migrationFixture();
+    context
+      .sqlite!.prepare(
+        `INSERT INTO web_terminal_sessions
+      (id, user_id, host_id, project_host_id, tab_instance_id, tmux_name)
+      VALUES ('migration-pin', 'owner', 7, ?, 'migration-pin', 'migration-pin')`,
+      )
+      .run(fixture.sourceProjectHostId);
+    expect((await fixture.migrate()).status).toBe(409);
+    expect(prepareHostMigrationCredential).not.toHaveBeenCalled();
+    context
+      .sqlite!.prepare(
+        "DELETE FROM web_terminal_sessions WHERE id = 'migration-pin'",
+      )
+      .run();
+    await credentials.assignToProjectHost(
+      fixture.sourceProjectId,
+      fixture.sourceProjectHostId,
+      null,
+    );
+    expect((await fixture.migrate()).status).toBe(409);
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT project_id AS projectId FROM project_hosts WHERE id = ?",
+        )
+        .get(fixture.sourceProjectHostId),
+    ).toEqual({ projectId: fixture.sourceProjectId });
+    expect(
+      context
+        .sqlite!.prepare(
+          "SELECT COUNT(*) AS count FROM project_hosts WHERE project_id = ?",
+        )
+        .get(fixture.targetProjectId),
+    ).toEqual({ count: 0 });
+  });
+
+  it("迁移要求源和目标的管理权限及主机归属", async () => {
+    const fixture = await migrationFixture();
+    expect((await fixture.migrate("outsider")).status).toBe(404);
+    management.setProjectMember(
+      fixture.sourceProjectId,
+      "owner",
+      false,
+      "member",
+      "operator",
+    );
+    management.setProjectMember(
+      fixture.targetProjectId,
+      "owner",
+      false,
+      "member",
+      "project_admin",
+    );
+    expect((await fixture.migrate("member")).status).toBe(403);
+    management.setProjectMember(
+      fixture.sourceProjectId,
+      "owner",
+      false,
+      "member",
+      "project_admin",
+    );
+    management.setProjectMember(
+      fixture.targetProjectId,
+      "owner",
+      false,
+      "member",
+      "viewer",
+    );
+    expect((await fixture.migrate("member")).status).toBe(403);
+    management.setProjectMember(
+      fixture.targetProjectId,
+      "owner",
+      false,
+      "member",
+      "project_admin",
+    );
+    expect((await fixture.migrate("member")).status).toBe(404);
+    expect(prepareHostMigrationCredential).not.toHaveBeenCalled();
+    expect((await fixture.migrate("admin")).status).toBe(200);
   });
 
   it("实例管理员可跨团队管理，项目删除会拒绝仍有关联的资源", async () => {

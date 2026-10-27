@@ -14,6 +14,21 @@ import { normalizePortKnockSequence } from "../hosts/port-knock-sequence.js";
 
 const MANAGED_CREDENTIAL_ID_PREFIX = "cloudssh-mirror:";
 
+export interface ProjectHostMigrationCredential {
+  source: {
+    id: string;
+    name: string;
+    username: string;
+    authType: string;
+    keyType: string | null;
+    encryptedSecret: string;
+  };
+  sourceManaged: boolean;
+  id: string;
+  name: string;
+  encryptedSecret: string;
+}
+
 function hasLegacyManagedCredentialName(name: string): boolean {
   return /^Agent .+ \d+$/.test(name);
 }
@@ -61,6 +76,53 @@ export class ProjectCredentialRepository {
     private readonly context: DatabaseContext,
     private readonly vault: PlatformCredentialVault,
   ) {}
+
+  /** 只准备目标密文；关联和凭据均留给迁移事务统一写入。 */
+  async prepareHostMigrationCredential(
+    sourceProjectId: string,
+    sourceProjectHostId: number,
+    targetProjectId: string,
+  ): Promise<ProjectHostMigrationCredential> {
+    const source = this.context.drizzle
+      .select({
+        id: projectCredentials.id,
+        name: projectCredentials.name,
+        username: projectCredentials.username,
+        authType: projectCredentials.authType,
+        keyType: projectCredentials.keyType,
+        encryptedSecret: projectCredentials.encryptedSecret,
+      })
+      .from(projectHosts)
+      .innerJoin(
+        projectCredentials,
+        eq(projectHosts.credentialId, projectCredentials.id),
+      )
+      .where(
+        and(
+          eq(projectHosts.id, sourceProjectHostId),
+          eq(projectHosts.projectId, sourceProjectId),
+          eq(projectCredentials.projectId, sourceProjectId),
+        ),
+      )
+      .get();
+    if (!source) throw new Error("Source project credential is unavailable");
+    const sourceManaged = isManagedProjectCredential(
+      source,
+      sourceProjectHostId,
+    );
+    const id = `${sourceManaged ? MANAGED_CREDENTIAL_ID_PREFIX : ""}${crypto.randomUUID()}`;
+    return {
+      source,
+      sourceManaged,
+      id,
+      name: `Migrated ${id}`,
+      encryptedSecret: this.vault.encrypt(
+        id,
+        targetProjectId,
+        this.vault.decrypt(source.id, sourceProjectId, source.encryptedSecret),
+      ),
+    };
+  }
 
   async list(projectId: string) {
     return this.context.drizzle

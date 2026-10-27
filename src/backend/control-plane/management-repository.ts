@@ -1,5 +1,6 @@
 import type { Database as BetterSqliteDatabase } from "better-sqlite3";
 import type { DatabaseContext } from "../database/repositories/database-context.js";
+import type { ProjectHostMigrationCredential } from "./credential-repository.js";
 
 export type TeamRole = "team_admin" | "project_admin" | "operator" | "viewer";
 export type ManagedProjectRole = "project_admin" | "operator" | "viewer";
@@ -1286,6 +1287,210 @@ export class ManagementRepository {
       }
       throw error;
     }
+  }
+
+  getProjectHostMigrationTarget(
+    sourceProjectId: string,
+    targetProjectId: string,
+    userId: string,
+    isInstanceAdmin: boolean,
+    sourceProjectHostId: number,
+  ) {
+    if (sourceProjectId === targetProjectId) {
+      throw new ControlPlaneManagementError(
+        400,
+        "Source and target projects must be different",
+      );
+    }
+    this.requireProjectAdmin(sourceProjectId, userId, isInstanceAdmin);
+    this.requireProjectAdmin(targetProjectId, userId, isInstanceAdmin);
+
+    const source = this.sqlite
+      .prepare(
+        `SELECT ph.id AS projectHostId, ph.host_id AS hostId,
+                ph.alias, ph.folder, ph.tags, h.name AS sourceName, h.ip AS address,
+                h.port, h.connection_type AS connectionType,
+                h.user_id AS ownerUserId
+           FROM project_hosts ph
+           JOIN ssh_data h ON h.id = ph.host_id
+          WHERE ph.id = ? AND ph.project_id = ?`,
+      )
+      .get(sourceProjectHostId, sourceProjectId) as
+      | {
+          projectHostId: number;
+          hostId: number;
+          alias: string | null;
+          folder: string | null;
+          tags: string | null;
+          sourceName: string | null;
+          address: string;
+          port: number;
+          connectionType: string;
+          ownerUserId: string;
+        }
+      | undefined;
+    if (!source) {
+      throw new ControlPlaneManagementError(404, "Project host not found");
+    }
+    if (!isInstanceAdmin && source.ownerUserId !== userId) {
+      throw new ControlPlaneManagementError(404, "Host not found");
+    }
+
+    const existingTarget = this.sqlite
+      .prepare(
+        "SELECT id FROM project_hosts WHERE project_id = ? AND host_id = ?",
+      )
+      .get(targetProjectId, source.hostId);
+    if (existingTarget) {
+      throw new ControlPlaneManagementError(
+        409,
+        "Host is already associated with target project",
+      );
+    }
+
+    const sessions = this.sqlite
+      .prepare(
+        "SELECT COUNT(*) AS count FROM persistent_sessions WHERE project_host_id = ?",
+      )
+      .get(sourceProjectHostId) as { count: number };
+    if (sessions.count > 0) {
+      throw new ControlPlaneManagementError(
+        409,
+        "Project host still has session history",
+      );
+    }
+    const fixedTerminals = this.sqlite
+      .prepare(
+        "SELECT COUNT(*) AS count FROM web_terminal_sessions WHERE project_host_id = ?",
+      )
+      .get(sourceProjectHostId) as { count: number };
+    if (fixedTerminals.count > 0) {
+      throw new ControlPlaneManagementError(
+        409,
+        "Project host still has pinned terminal windows",
+      );
+    }
+
+    return {
+      sourceProjectId,
+      targetProjectId,
+      projectHostId: source.projectHostId,
+      hostId: source.hostId,
+      alias: source.alias,
+      folder: source.folder,
+      tags: source.tags,
+      name: source.alias || source.sourceName || `Server ${source.hostId}`,
+      sourceName: source.alias ? source.sourceName : null,
+      address: source.address,
+      port: source.port,
+      connectionType: source.connectionType,
+    };
+  }
+
+  migrateProjectHost(
+    sourceProjectId: string,
+    targetProjectId: string,
+    userId: string,
+    isInstanceAdmin: boolean,
+    sourceProjectHostId: number,
+    credential: ProjectHostMigrationCredential | null,
+  ) {
+    return this.sqlite.transaction(() => {
+      const source = this.getProjectHostMigrationTarget(
+        sourceProjectId,
+        targetProjectId,
+        userId,
+        isInstanceAdmin,
+        sourceProjectHostId,
+      );
+      if (source.connectionType === "ssh" && !credential) {
+        throw new ControlPlaneManagementError(
+          409,
+          "Source project credential is unavailable",
+        );
+      }
+      if (credential) {
+        const current = this.sqlite
+          .prepare(
+            `SELECT pc.id, pc.name, pc.username, pc.auth_type AS authType,
+                  pc.key_type AS keyType, pc.encrypted_secret AS encryptedSecret
+             FROM project_hosts ph
+             JOIN project_credentials pc ON pc.id = ph.credential_id
+            WHERE ph.id = ? AND ph.project_id = ? AND pc.project_id = ?`,
+          )
+          .get(sourceProjectHostId, sourceProjectId, sourceProjectId);
+        // 准备密文期间凭据可能被重新分配或轮换，拒绝写入过期快照。
+        if (
+          !current ||
+          JSON.stringify(current) !== JSON.stringify(credential.source)
+        ) {
+          throw new ControlPlaneManagementError(
+            409,
+            "Source project credential changed; retry migration",
+          );
+        }
+        this.sqlite
+          .prepare(
+            `INSERT INTO project_credentials
+             (id, project_id, name, username, auth_type, encrypted_secret, key_type, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            credential.id,
+            targetProjectId,
+            credential.name,
+            credential.source.username,
+            credential.source.authType,
+            credential.encryptedSecret,
+            credential.source.keyType,
+            userId,
+          );
+      }
+      if (source.folder) {
+        this.sqlite
+          .prepare(
+            "INSERT OR IGNORE INTO project_folders (project_id, path) VALUES (?, ?)",
+          )
+          .run(targetProjectId, source.folder);
+      }
+      const inserted = this.sqlite
+        .prepare(
+          `INSERT INTO project_hosts
+           (project_id, host_id, credential_id, alias, folder, tags, added_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          targetProjectId,
+          source.hostId,
+          credential?.id ?? null,
+          source.alias,
+          source.folder,
+          source.tags,
+          userId,
+        );
+      this.sqlite
+        .prepare("DELETE FROM project_hosts WHERE id = ? AND project_id = ?")
+        .run(sourceProjectHostId, sourceProjectId);
+      // 手工凭据留在原项目；只回收已无引用的托管镜像。
+      if (credential?.sourceManaged) {
+        this.sqlite
+          .prepare(
+            `DELETE FROM project_credentials WHERE id = ? AND project_id = ?
+             AND NOT EXISTS (SELECT 1 FROM project_hosts WHERE credential_id = ?)`,
+          )
+          .run(credential.source.id, sourceProjectId, credential.source.id);
+      }
+      return {
+        projectHostId: Number(inserted.lastInsertRowid),
+        hostId: source.hostId,
+        name: source.name,
+        sourceName: source.sourceName,
+        address: source.address,
+        port: source.port,
+        connectionType: source.connectionType,
+        folder: source.folder,
+      };
+    })();
   }
 
   getProjectHostCreationTarget(
