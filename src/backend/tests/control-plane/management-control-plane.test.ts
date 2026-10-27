@@ -1160,9 +1160,9 @@ describe("云 SSH 控制面写接口", () => {
     await seedMigrationCredential(source.projectId, sourceProjectHostId);
     context
       .sqlite!.prepare(
-        "UPDATE project_hosts SET alias = ?, folder = ? WHERE id = ?",
+        "UPDATE project_hosts SET alias = ?, folder = ?, tags = ? WHERE id = ?",
       )
-      .run("生产入口", "线上 / Web", sourceProjectHostId);
+      .run("生产入口", "线上 / Web", "生产,关键服务", sourceProjectHostId);
 
     const migrated = await request(
       `/projects/${source.projectId}/servers/${sourceProjectHostId}/migrate`,
@@ -1195,7 +1195,7 @@ describe("云 SSH 控制面写接口", () => {
 
     const links = context
       .sqlite!.prepare(
-        `SELECT project_id AS projectId, host_id AS hostId, alias, folder
+        `SELECT project_id AS projectId, host_id AS hostId, alias, folder, tags
            FROM project_hosts WHERE host_id = 7`,
       )
       .all();
@@ -1205,6 +1205,7 @@ describe("云 SSH 控制面写接口", () => {
         hostId: 7,
         alias: "生产入口",
         folder: "线上 / Web",
+        tags: "生产,关键服务",
       },
     ]);
     expect(

@@ -1308,7 +1308,7 @@ export class ManagementRepository {
     const source = this.sqlite
       .prepare(
         `SELECT ph.id AS projectHostId, ph.host_id AS hostId,
-                ph.alias, ph.folder, h.name AS sourceName, h.ip AS address,
+                ph.alias, ph.folder, ph.tags, h.name AS sourceName, h.ip AS address,
                 h.port, h.connection_type AS connectionType,
                 h.user_id AS ownerUserId
            FROM project_hosts ph
@@ -1321,6 +1321,7 @@ export class ManagementRepository {
           hostId: number;
           alias: string | null;
           folder: string | null;
+          tags: string | null;
           sourceName: string | null;
           address: string;
           port: number;
@@ -1377,6 +1378,7 @@ export class ManagementRepository {
       hostId: source.hostId,
       alias: source.alias,
       folder: source.folder,
+      tags: source.tags,
       name: source.alias || source.sourceName || `Server ${source.hostId}`,
       sourceName: source.alias ? source.sourceName : null,
       address: source.address,
@@ -1454,8 +1456,8 @@ export class ManagementRepository {
       const inserted = this.sqlite
         .prepare(
           `INSERT INTO project_hosts
-           (project_id, host_id, credential_id, alias, folder, added_by)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (project_id, host_id, credential_id, alias, folder, tags, added_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           targetProjectId,
@@ -1463,6 +1465,7 @@ export class ManagementRepository {
           credential?.id ?? null,
           source.alias,
           source.folder,
+          source.tags,
           userId,
         );
       this.sqlite
