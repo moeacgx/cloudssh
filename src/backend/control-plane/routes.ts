@@ -8,7 +8,10 @@ import { createCurrentProjectRepository } from "./factory.js";
 import type { ProjectRepository } from "./project-repository.js";
 import { createCurrentRepositoryContext } from "../database/repositories/factory.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
-import { ProjectCredentialRepository } from "./credential-repository.js";
+import {
+  ProjectCredentialRepository,
+  type ProjectHostMigrationCredential,
+} from "./credential-repository.js";
 import {
   loadPlatformMasterKey,
   PlatformCredentialVault,
@@ -50,6 +53,11 @@ export interface ControlPlaneRouterDependencies {
   initializeProjectHostCredential?: (
     input: ProjectHostCredentialInitialization,
   ) => Promise<void>;
+  prepareHostMigrationCredential?: (
+    sourceProjectId: string,
+    sourceProjectHostId: number,
+    targetProjectId: string,
+  ) => Promise<ProjectHostMigrationCredential>;
   audit?: (entry: AuditLogParams) => Promise<void>;
   findTerminalSessions?: (filter: TerminalSessionFilter) => readonly unknown[];
   terminalLifecycleCoordinator?: Pick<
@@ -164,6 +172,18 @@ export function createControlPlaneRouter(
       initializeProjectHostCredential:
         dependencies.initializeProjectHostCredential ??
         initializeProjectHostCredential,
+      prepareHostMigrationCredential:
+        dependencies.prepareHostMigrationCredential ??
+        (async (sourceProjectId, sourceProjectHostId, targetProjectId) =>
+          (
+            await (
+              await import("./factory.js")
+            ).createCurrentProjectCredentialRepository()
+          ).prepareHostMigrationCredential(
+            sourceProjectId,
+            sourceProjectHostId,
+            targetProjectId,
+          )),
       audit: dependencies.audit ?? logAuditOrThrow,
       findTerminalSessions:
         dependencies.findTerminalSessions ??

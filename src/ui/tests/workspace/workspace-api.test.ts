@@ -26,6 +26,7 @@ import {
   getWorkspaceProjectServers,
   getWorkspaceTeams,
   moveWorkspaceProjectHosts,
+  migrateWorkspaceProjectHost,
   removeWorkspaceProjectHost,
   removeWorkspaceProjectMember,
   removeWorkspaceProjectRoleGrant,
@@ -307,6 +308,21 @@ describe("workspace management API", () => {
     expect(api.delete).toHaveBeenCalledWith(
       "/control-plane/projects/project%2Fone/folders",
       { data: { path: "线上" } },
+    );
+  });
+
+  it("moves a project host using the source association and target project", async () => {
+    api.post.mockResolvedValue({
+      data: { server: { projectHostId: 82, hostId: 7 } },
+    });
+
+    await expect(
+      migrateWorkspaceProjectHost("source/project", 41, "target/project"),
+    ).resolves.toEqual({ projectHostId: 82, hostId: 7 });
+
+    expect(api.post).toHaveBeenCalledWith(
+      "/control-plane/projects/source%2Fproject/servers/41/migrate",
+      { targetProjectId: "target/project" },
     );
   });
 

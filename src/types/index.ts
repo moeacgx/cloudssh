@@ -281,8 +281,10 @@ export interface HostData {
     | "none"
     | "opkssh"
     | "tailscale"
-    | "agent";
+    | "agent"
+    | "vault";
   useWarpgate?: boolean;
+  vaultProfileId?: number | null;
   password?: string;
   key?: File | string | null;
   keyPassword?: string;

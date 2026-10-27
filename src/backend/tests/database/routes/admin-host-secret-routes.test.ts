@@ -426,6 +426,86 @@ describe("管理员主机明文访问", () => {
     expect(state.auditEntries).toHaveLength(0);
   });
 
+  it.each(["ssh", "rdp", "vnc", "telnet"])(
+    "所有者导出 %s 主机时保留全部已配置协议及认证材料",
+    async (connectionType) => {
+      state.actingAsAdmin = false;
+      const protocolConfig = {
+        connectionType,
+        authType: "key",
+        enableSsh: true,
+        enableRdp: true,
+        enableVnc: true,
+        enableTelnet: true,
+        sshPort: 2222,
+        rdpAuthType: "credential",
+        rdpCredentialId: 11,
+        rdpPassword: "test-rdp-secret",
+        vncAuthType: "direct",
+        vncPassword: "test-vnc-secret",
+        telnetAuthType: "credential",
+        telnetCredentialId: 12,
+        telnetPassword: "test-telnet-secret",
+        allowSessionSharing: false,
+        useWarpgate: true,
+        vaultProfileId: 13,
+      };
+      state.host = { ...state.host, ...protocolConfig };
+
+      const response = await request("/db/host/7/export");
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      await expect(response.json()).resolves.toMatchObject({
+        ...protocolConfig,
+        password: "test-password",
+        key: "test-private-key",
+        keyPassword: "test-passphrase",
+      });
+    },
+  );
+
+  it("所有者导出纯远程桌面主机时保留关闭的 SSH 与空 SSH 密码", async () => {
+    state.actingAsAdmin = false;
+    state.host = {
+      id: 7,
+      userId: "target-user",
+      connectionType: "rdp",
+      enableSsh: false,
+      enableRdp: true,
+      rdpAuthType: "none",
+      rdpPassword: "test-rdp-secret",
+    };
+
+    const response = await request("/db/host/7/export");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      connectionType: "rdp",
+      enableSsh: false,
+      enableRdp: true,
+      rdpAuthType: "none",
+      password: null,
+      rdpPassword: "test-rdp-secret",
+    });
+  });
+
+  it("普通用户不能导出其他所有者的多协议认证材料", async () => {
+    state.actingAsAdmin = false;
+    state.host = {
+      ...state.host,
+      userId: "another-user",
+      rdpPassword: "other-rdp-secret",
+    };
+
+    const response = await request("/db/host/7/export");
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "SSH host not found",
+    });
+  });
+
   it("存在固定窗口时拒绝删除主机", async () => {
     state.fixedSessions = [{ id: "fixed-window" }];
 

@@ -11,6 +11,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Box,
   Boxes,
+  ArrowRightLeft,
   Check,
   ChevronDown,
   ChevronRight,
@@ -53,9 +54,16 @@ import {
 } from "@/components/dropdown-menu";
 import { toast } from "sonner";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/dialog";
+import {
   bulkUpdateSSHHosts,
   createSSHHost,
   deleteSSHHost,
+  exportSSHHostWithCredentials,
   getHostPassword,
   renameFolder,
   updateFolderMetadata,
@@ -92,6 +100,7 @@ import {
 } from "@/components/tooltip";
 import { useWorkspace } from "@/workspace/WorkspaceContext";
 import type { WorkspaceHostRemovalScope } from "@/workspace/project-host-removal";
+import { migrateWorkspaceProjectHost } from "@/api/workspace-api";
 
 export type ProjectFolderActions = {
   canManage: boolean;
@@ -297,6 +306,8 @@ export function HostItem({
   onEditHost: onEditHostProp,
   onShareHost: onShareHostProp,
   onProxmoxDiscover,
+  onMigrateHost,
+  allowProjectMigration = false,
   onDelete,
   onDuplicate,
   query = "",
@@ -330,6 +341,8 @@ export function HostItem({
   isTrayOpen?: boolean;
   onTrayOpenChange?: (open: boolean) => void;
   onProxmoxDiscover?: () => void;
+  onMigrateHost?: () => void;
+  allowProjectMigration?: boolean;
   onDragStart?: () => void;
   onDragEnd?: () => void;
   canManageHost?: boolean;
@@ -349,6 +362,8 @@ export function HostItem({
       host.canDeleteFromAllProjects === true ||
       canDeleteHost(host));
   const allowDuplicate = canManageHost && canDeleteHost(host);
+  const allowMigrate =
+    allowProjectMigration && Boolean(host.projectHostId) && canDeleteHost(host);
   const metricsEnabled =
     host.enableSsh && host.statsConfig?.metricsEnabled !== false;
   const [trayOnClick, setTrayOnClick] = useState(
@@ -734,9 +749,20 @@ export function HostItem({
                         {t("nav.copySudoPassword")}
                       </DropdownMenuItem>
                     )}
-                    {(allowDuplicate || allowDelete) && (
+                    {(allowDuplicate || allowDelete || allowMigrate) && (
                       <>
                         <DropdownMenuSeparator />
+                        {allowMigrate && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onMigrateHost?.();
+                            }}
+                          >
+                            <ArrowRightLeft className="size-3.5 mr-2" />
+                            {t("hosts.migrateToProject")}
+                          </DropdownMenuItem>
+                        )}
                         {allowDuplicate && (
                           <DropdownMenuItem
                             onClick={(e) => {
@@ -944,9 +970,20 @@ export function HostItem({
                         {t("nav.copySudoPassword")}
                       </DropdownMenuItem>
                     )}
-                    {(allowDuplicate || allowDelete) && (
+                    {(allowDuplicate || allowDelete || allowMigrate) && (
                       <>
                         <DropdownMenuSeparator />
+                        {allowMigrate && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onMigrateHost?.();
+                            }}
+                          >
+                            <ArrowRightLeft className="size-3.5 mr-2" />
+                            {t("hosts.migrateToProject")}
+                          </DropdownMenuItem>
+                        )}
                         {allowDuplicate && (
                           <DropdownMenuItem
                             onClick={(e) => {
@@ -1563,9 +1600,20 @@ export function HostItem({
                       )}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
-                  {(allowDuplicate || allowDelete) && (
+                  {(allowDuplicate || allowDelete || allowMigrate) && (
                     <>
                       <DropdownMenuSeparator />
+                      {allowMigrate && (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onMigrateHost?.();
+                          }}
+                        >
+                          <ArrowRightLeft className="size-3.5 mr-2" />
+                          {t("hosts.migrateToProject")}
+                        </DropdownMenuItem>
+                      )}
                       {allowDuplicate && (
                         <DropdownMenuItem
                           onClick={(e) => {
@@ -1632,6 +1680,8 @@ export function FolderItem({
   onDeleteFolder,
   onOpenAllSessions,
   onShareFolder,
+  onMigrateHost,
+  allowProjectMigration = false,
   onMoveHostsToFolder,
   draggedHostIds,
   onDragHostStart,
@@ -1650,6 +1700,8 @@ export function FolderItem({
   onDeleteHost: (host: Host) => void;
   onDuplicateHost: (host: Host) => void;
   onProxmoxDiscover?: (host: Host) => void;
+  onMigrateHost?: (host: Host) => void;
+  allowProjectMigration?: boolean;
   query?: string;
   stripeMap?: Map<Host | HostFolder, number>;
   openFolders: Set<string>;
@@ -1836,6 +1888,8 @@ export function FolderItem({
                 onDeleteHost={onDeleteHost}
                 onDuplicateHost={onDuplicateHost}
                 onProxmoxDiscover={onProxmoxDiscover}
+                onMigrateHost={onMigrateHost}
+                allowProjectMigration={allowProjectMigration}
                 query={query}
                 stripeMap={stripeMap}
                 openFolders={openFolders}
@@ -1868,6 +1922,10 @@ export function FolderItem({
                 onProxmoxDiscover={
                   onProxmoxDiscover ? () => onProxmoxDiscover(child) : undefined
                 }
+                onMigrateHost={
+                  onMigrateHost ? () => onMigrateHost(child) : undefined
+                }
+                allowProjectMigration={allowProjectMigration}
                 onDelete={() => onDeleteHost(child)}
                 onDuplicate={() => onDuplicateHost(child)}
                 query={query}
@@ -1923,7 +1981,7 @@ export function SidebarTree({
   projectFolderActions?: ProjectFolderActions;
 }) {
   const { t } = useTranslation();
-  const { activeProject } = useWorkspace();
+  const { activeProject, projects } = useWorkspace();
   const [openFolders, setOpenFolders] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem("hostOpenFolders");
@@ -1945,6 +2003,16 @@ export function SidebarTree({
   const [hostRemovalDialog, setHostRemovalDialog] = useState<{
     hosts: Host[];
   } | null>(null);
+  const [migrationDialog, setMigrationDialog] = useState<{
+    host: Host;
+    sourceProjectId: string;
+    targetProjectId: string;
+  } | null>(null);
+  const [migrationSubmitting, setMigrationSubmitting] = useState(false);
+  const migrationInFlight = useRef(false);
+  useEffect(() => {
+    if (!migrationInFlight.current) setMigrationDialog(null);
+  }, [activeProject.id]);
   const [draggedHostIds, setDraggedHostIds] = useState<string[] | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const [folderDialog, setFolderDialog] = useState<{
@@ -2178,6 +2246,60 @@ export function SidebarTree({
     return canDeleteHost(host);
   }
 
+  const migrationProjects = projects.filter(
+    (project) =>
+      project.id !== activeProject.id &&
+      ["instance_admin", "team_admin", "project_admin"].includes(
+        project.role,
+      ) &&
+      !project.hostIds.includes(Number(migrationDialog?.host.id)),
+  );
+
+  async function handleMigrateHost() {
+    const host = migrationDialog?.host;
+    const targetProjectId = migrationDialog?.targetProjectId;
+    if (!host?.projectHostId || !targetProjectId || migrationInFlight.current)
+      return;
+    const targetProject = migrationProjects.find(
+      (project) => project.id === targetProjectId,
+    );
+    if (!targetProject) return;
+
+    migrationInFlight.current = true;
+    setMigrationSubmitting(true);
+    try {
+      await migrateWorkspaceProjectHost(
+        migrationDialog.sourceProjectId,
+        Number(host.projectHostId),
+        targetProject.id,
+      );
+      window.dispatchEvent(new CustomEvent("termix:hosts-changed"));
+      toast.success(
+        t("hosts.projectMigrationSuccess", {
+          name: host.name,
+          project: targetProject.name,
+        }),
+      );
+      setMigrationDialog(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const key = message.includes("session history")
+        ? "hosts.projectMigrationHasHistory"
+        : message.includes("pinned terminal")
+          ? "hosts.projectMigrationHasPinnedTerminals"
+          : message.includes("active terminal")
+            ? "hosts.projectMigrationHasActiveSessions"
+            : message.includes("credentials could not be prepared") ||
+                message.includes("credential is unavailable")
+              ? "hosts.projectMigrationCredentialsUnavailable"
+              : "hosts.projectMigrationFailed";
+      toast.error(t(key));
+    } finally {
+      migrationInFlight.current = false;
+      setMigrationSubmitting(false);
+    }
+  }
+
   function hasOtherProjectLinks(host: Host): boolean {
     return (host.linkedProjectCount ?? 1) > 1;
   }
@@ -2284,69 +2406,112 @@ export function SidebarTree({
 
   async function handleDuplicateHost(host: Host) {
     try {
-      const duplicateHost: SSHHostData = {
-        name: `${host.name} (copy)`,
-        ip: host.ip,
-        port: host.port,
-        username: host.username,
+      // 主机列表接口会脱敏密码和私钥；克隆必须通过受控导出接口重新取得
+      // 当前用户有权使用的认证材料，不能从列表对象读取已被删除的字段。
+      const exportedHost = await exportSSHHostWithCredentials(Number(host.id));
+      const cloneSource = {
+        ...host,
+        ...exportedHost,
+        // folder 是当前项目关联元数据，不能被主机全局文件夹覆盖。
         folder: host.folder,
-        tags: host.tags ?? [],
-        pin: host.pin ?? false,
-        notes: host.notes,
-        macAddress: host.macAddress,
-        // Key material is never sent to the frontend, so a cloned key-auth
-        // host would have authType "key" with no key — unusable. Reset to
-        // password so the clone is in a connectable (editable) state.
-        authType: host.authType === "key" ? "password" : host.authType,
-        password: host.authType === "key" ? null : (host.password ?? null),
-        key: null,
-        keyPassword: null,
-        keyType: null,
-        credentialId: host.credentialId ? Number(host.credentialId) : null,
-        overrideCredentialUsername: host.overrideCredentialUsername ?? false,
-        enableSsh: host.enableSsh,
-        enableRdp: host.enableRdp,
-        enableVnc: host.enableVnc,
-        enableTelnet: host.enableTelnet,
-        enableTerminal: host.enableTerminal,
-        enableTunnel: host.enableTunnel,
-        enableFileManager: host.enableFileManager,
-        enableDocker: host.enableDocker,
-        sshPort: host.sshPort,
-        rdpPort: host.rdpPort,
-        vncPort: host.vncPort,
-        telnetPort: host.telnetPort,
-        rdpUser: host.rdpUser ?? null,
-        rdpPassword: host.rdpPassword ?? null,
-        rdpDomain: host.domain ?? null,
-        rdpSecurity: host.security ?? null,
-        rdpIgnoreCert: host.ignoreCert ?? false,
-        vncAuthType: host.vncAuthType ?? null,
-        vncCredentialId: host.vncCredentialId ?? null,
-        vncPassword: host.vncPassword ?? null,
-        vncUser: host.vncUser ?? null,
-        telnetUser: host.telnetUser ?? null,
-        telnetPassword: host.telnetPassword ?? null,
-        defaultPath: host.defaultPath ?? "/",
-        forceKeyboardInteractive: host.forceKeyboardInteractive ?? false,
-        useSocks5: host.useSocks5,
-        socks5Host: host.socks5Host ?? null,
-        socks5Port: host.socks5Port ?? null,
-        socks5Username: host.socks5Username ?? null,
-        socks5Password: host.socks5Password ?? null,
-        socks5ProxyChain: host.socks5ProxyChain ?? null,
-        jumpHosts: (host.jumpHosts ?? []).map((j) => ({
+        name: host.name,
+      };
+      const duplicateHost: SSHHostData = {
+        name: `${cloneSource.name} (copy)`,
+        ip: cloneSource.ip,
+        port: cloneSource.port,
+        username: cloneSource.username,
+        folder: cloneSource.folder,
+        tags: cloneSource.tags ?? [],
+        pin: cloneSource.pin ?? false,
+        notes: cloneSource.notes,
+        macAddress: cloneSource.macAddress,
+        wolBroadcastAddress: cloneSource.wolBroadcastAddress,
+        connectionType: exportedHost.connectionType,
+        authType: cloneSource.authType,
+        useWarpgate: cloneSource.useWarpgate,
+        vaultProfileId: exportedHost.vaultProfileId,
+        sudoPassword: cloneSource.sudoPassword,
+        password: cloneSource.password ?? null,
+        key: cloneSource.key ?? null,
+        keyPassword: cloneSource.keyPassword ?? null,
+        keyType: cloneSource.keyType ?? null,
+        credentialId: cloneSource.credentialId
+          ? Number(cloneSource.credentialId)
+          : null,
+        overrideCredentialUsername:
+          cloneSource.overrideCredentialUsername ?? false,
+        enableSsh: cloneSource.enableSsh,
+        enableRdp: cloneSource.enableRdp,
+        enableVnc: cloneSource.enableVnc,
+        enableTelnet: cloneSource.enableTelnet,
+        enableTerminal: cloneSource.enableTerminal,
+        enableCommandHistory: cloneSource.enableCommandHistory,
+        enableSessionLogging: exportedHost.enableSessionLogging,
+        allowSessionSharing: exportedHost.allowSessionSharing,
+        enableTunnel: cloneSource.enableTunnel,
+        enableFileManager: cloneSource.enableFileManager,
+        scpLegacy: cloneSource.scpLegacy,
+        enableDocker: cloneSource.enableDocker,
+        dockerConfig: cloneSource.dockerConfig,
+        enableProxmox: cloneSource.enableProxmox,
+        proxmoxConfig: cloneSource.proxmoxConfig,
+        enableTmuxMonitor: cloneSource.enableTmuxMonitor,
+        showTerminalInSidebar: exportedHost.showTerminalInSidebar,
+        showFileManagerInSidebar: exportedHost.showFileManagerInSidebar,
+        showTunnelInSidebar: exportedHost.showTunnelInSidebar,
+        showDockerInSidebar: exportedHost.showDockerInSidebar,
+        showServerStatsInSidebar: exportedHost.showServerStatsInSidebar,
+        sshPort: cloneSource.sshPort,
+        rdpPort: cloneSource.rdpPort,
+        vncPort: cloneSource.vncPort,
+        telnetPort: cloneSource.telnetPort,
+        rdpAuthType: cloneSource.rdpAuthType,
+        rdpCredentialId: cloneSource.rdpCredentialId
+          ? Number(cloneSource.rdpCredentialId)
+          : null,
+        rdpUser: cloneSource.rdpUser ?? null,
+        rdpPassword: cloneSource.rdpPassword ?? null,
+        rdpDomain: exportedHost.rdpDomain ?? cloneSource.domain ?? null,
+        rdpSecurity: exportedHost.rdpSecurity ?? cloneSource.security ?? null,
+        rdpIgnoreCert:
+          exportedHost.rdpIgnoreCert ?? cloneSource.ignoreCert ?? false,
+        vncAuthType: cloneSource.vncAuthType ?? null,
+        vncCredentialId: cloneSource.vncCredentialId
+          ? Number(cloneSource.vncCredentialId)
+          : null,
+        vncPassword: cloneSource.vncPassword ?? null,
+        vncUser: cloneSource.vncUser ?? null,
+        telnetAuthType: cloneSource.telnetAuthType,
+        telnetCredentialId: cloneSource.telnetCredentialId
+          ? Number(cloneSource.telnetCredentialId)
+          : null,
+        telnetUser: cloneSource.telnetUser ?? null,
+        telnetPassword: cloneSource.telnetPassword ?? null,
+        defaultPath: cloneSource.defaultPath ?? "/",
+        forceKeyboardInteractive: cloneSource.forceKeyboardInteractive ?? false,
+        useSocks5: cloneSource.useSocks5,
+        socks5Host: cloneSource.socks5Host ?? null,
+        socks5Port: cloneSource.socks5Port ?? null,
+        socks5Username: cloneSource.socks5Username ?? null,
+        socks5Password: cloneSource.socks5Password ?? null,
+        socks5ProxyChain: exportedHost.socks5ProxyChain ?? null,
+        jumpHosts: (cloneSource.jumpHosts ?? []).map((j) => ({
           hostId: Number(j.hostId),
         })),
-        portKnockSequence: host.portKnockSequence ?? [],
-        tunnelConnections: host.serverTunnels ?? [],
-        quickActions: (host.quickActions ?? []).map((a) => ({
+        portKnockSequence: cloneSource.portKnockSequence ?? [],
+        tunnelConnections:
+          exportedHost.tunnelConnections ?? host.serverTunnels ?? [],
+        quickActions: (cloneSource.quickActions ?? []).map((a) => ({
           name: a.name,
           snippetId: Number(a.snippetId),
         })),
-        statsConfig: host.statsConfig,
-        guacamoleConfig: host.guacamoleConfig ?? null,
-        terminalConfig: host.terminalConfig ?? null,
+        statsConfig: cloneSource.statsConfig,
+        guacamoleConfig:
+          typeof exportedHost.guacamoleConfig === "string"
+            ? JSON.parse(exportedHost.guacamoleConfig)
+            : (exportedHost.guacamoleConfig ?? null),
+        terminalConfig: exportedHost.terminalConfig ?? null,
       };
       await createSSHHost(duplicateHost, activeProject.id);
       window.dispatchEvent(new CustomEvent("termix:hosts-changed"));
@@ -2494,6 +2659,16 @@ export function SidebarTree({
                       onDeleteHost={handleDeleteHost}
                       onDuplicateHost={handleDuplicateHost}
                       onProxmoxDiscover={onProxmoxDiscover}
+                      onMigrateHost={(host) =>
+                        setMigrationDialog({
+                          host,
+                          sourceProjectId: activeProject.id,
+                          targetProjectId: "",
+                        })
+                      }
+                      allowProjectMigration={Boolean(
+                        projectFolderActions?.canManage,
+                      )}
                       query={query}
                       openFolders={openFolders}
                       onToggleFolder={toggleFolder}
@@ -2543,6 +2718,16 @@ export function SidebarTree({
                           ? () => onProxmoxDiscover(item)
                           : undefined
                       }
+                      onMigrateHost={() =>
+                        setMigrationDialog({
+                          host: item,
+                          sourceProjectId: activeProject.id,
+                          targetProjectId: "",
+                        })
+                      }
+                      allowProjectMigration={Boolean(
+                        projectFolderActions?.canManage,
+                      )}
                       onDelete={() => handleDeleteHost(item)}
                       onDuplicate={() => handleDuplicateHost(item)}
                       query={query}
@@ -2931,6 +3116,78 @@ export function SidebarTree({
         host={null}
         folder={shareFolderTarget}
       />
+
+      {migrationDialog && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !migrationInFlight.current) setMigrationDialog(null);
+          }}
+        >
+          <DialogContent showCloseButton={!migrationSubmitting}>
+            <DialogTitle className="text-sm font-semibold">
+              {t("hosts.migrateHostTitle")}
+            </DialogTitle>
+            <DialogDescription className="mt-1 text-xs text-muted-foreground">
+              {t("hosts.migrateHostDescription", {
+                name: migrationDialog.host.name,
+              })}
+            </DialogDescription>
+            <label
+              htmlFor="host-migration-target"
+              className="mt-4 block text-xs font-medium"
+            >
+              {t("hosts.migrateTargetProject")}
+            </label>
+            <select
+              id="host-migration-target"
+              className="mt-1 h-9 w-full rounded border border-input bg-background px-2 text-sm"
+              value={migrationDialog.targetProjectId}
+              disabled={migrationSubmitting}
+              onChange={(event) =>
+                setMigrationDialog({
+                  ...migrationDialog,
+                  targetProjectId: event.target.value,
+                })
+              }
+            >
+              <option value="">{t("hosts.selectTargetProject")}</option>
+              {migrationProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+            {migrationProjects.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("hosts.noMigrationProjects")}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded border border-border px-3 py-1.5 text-xs"
+                disabled={migrationSubmitting}
+                onClick={() => setMigrationDialog(null)}
+              >
+                {t("hosts.cancelBtn")}
+              </button>
+              <button
+                type="button"
+                className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"
+                disabled={
+                  migrationSubmitting ||
+                  !migrationDialog.targetProjectId ||
+                  !migrationDialog.host.projectHostId
+                }
+                onClick={() => void handleMigrateHost()}
+              >
+                {t("hosts.migrateToProject")}
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -2388,10 +2388,6 @@ router.get(
 
       const exportedConnectionType =
         (resolvedHost.connectionType as string) || "ssh";
-      const isRemoteDesktop = ["rdp", "vnc", "telnet"].includes(
-        exportedConnectionType,
-      );
-
       const baseExportData = {
         connectionType: exportedConnectionType,
         name: resolvedHost.name,
@@ -2408,92 +2404,109 @@ router.get(
         notes: resolvedHost.notes || null,
       };
 
-      const exportData = isRemoteDesktop
-        ? {
-            ...baseExportData,
-            enableRdp: !!resolvedHost.enableRdp,
-            enableVnc: !!resolvedHost.enableVnc,
-            enableTelnet: !!resolvedHost.enableTelnet,
-            rdpPort: resolvedHost.rdpPort || 3389,
-            vncPort: resolvedHost.vncPort || 5900,
-            telnetPort: resolvedHost.telnetPort || 23,
-            rdpAuthType: resolvedHost.rdpAuthType || null,
-            rdpCredentialId: resolvedHost.rdpCredentialId || null,
-            rdpUser: resolvedHost.rdpUser || null,
-            rdpPassword: resolvedHost.rdpPassword || null,
-            rdpDomain: resolvedHost.rdpDomain || null,
-            rdpSecurity: resolvedHost.rdpSecurity || null,
-            rdpIgnoreCert: !!resolvedHost.rdpIgnoreCert,
-            vncAuthType: resolvedHost.vncAuthType || null,
-            vncCredentialId: resolvedHost.vncCredentialId || null,
-            vncUser: resolvedHost.vncUser || null,
-            vncPassword: resolvedHost.vncPassword || null,
-            telnetAuthType: resolvedHost.telnetAuthType || null,
-            telnetCredentialId: resolvedHost.telnetCredentialId || null,
-            telnetUser: resolvedHost.telnetUser || null,
-            telnetPassword: resolvedHost.telnetPassword || null,
-            guacamoleConfig: resolvedHost.guacamoleConfig
-              ? JSON.parse(resolvedHost.guacamoleConfig as string)
-              : null,
-          }
-        : {
-            ...baseExportData,
-            authType: resolvedHost.authType,
-            key: resolvedHost.key || null,
-            keyPassword: resolvedHost.keyPassword || null,
-            keyType: resolvedHost.keyType || null,
-            credentialId: resolvedHost.credentialId || null,
-            overrideCredentialUsername:
-              !!resolvedHost.overrideCredentialUsername,
-            enableTerminal: !!resolvedHost.enableTerminal,
-            enableTunnel: !!resolvedHost.enableTunnel,
-            enableFileManager: resolvedHost.enableFileManager !== false,
-            scpLegacy: !!resolvedHost.scpLegacy,
-            enableDocker: !!resolvedHost.enableDocker,
-            enableProxmox: !!resolvedHost.enableProxmox,
-            enableTmuxMonitor: !!resolvedHost.enableTmuxMonitor,
-            showTerminalInSidebar: !!resolvedHost.showTerminalInSidebar,
-            showFileManagerInSidebar: !!resolvedHost.showFileManagerInSidebar,
-            showTunnelInSidebar: !!resolvedHost.showTunnelInSidebar,
-            showDockerInSidebar: !!resolvedHost.showDockerInSidebar,
-            showServerStatsInSidebar: !!resolvedHost.showServerStatsInSidebar,
-            defaultPath: resolvedHost.defaultPath,
-            sudoPassword: resolvedHost.sudoPassword || null,
-            tunnelConnections: resolvedHost.tunnelConnections
-              ? JSON.parse(resolvedHost.tunnelConnections as string)
-              : [],
-            jumpHosts: resolvedHost.jumpHosts
-              ? JSON.parse(resolvedHost.jumpHosts as string)
-              : null,
-            quickActions: resolvedHost.quickActions
-              ? JSON.parse(resolvedHost.quickActions as string)
-              : null,
-            statsConfig: resolvedHost.statsConfig
-              ? JSON.parse(resolvedHost.statsConfig as string)
-              : null,
-            dockerConfig: resolvedHost.dockerConfig
-              ? JSON.parse(resolvedHost.dockerConfig as string)
-              : null,
-            proxmoxConfig: resolvedHost.proxmoxConfig
-              ? JSON.parse(resolvedHost.proxmoxConfig as string)
-              : null,
-            terminalConfig: resolvedHost.terminalConfig
-              ? JSON.parse(resolvedHost.terminalConfig as string)
-              : null,
-            forceKeyboardInteractive:
-              resolvedHost.forceKeyboardInteractive === "true",
-            useSocks5: !!resolvedHost.useSocks5,
-            socks5Host: resolvedHost.socks5Host || null,
-            socks5Port: resolvedHost.socks5Port || null,
-            socks5Username: resolvedHost.socks5Username || null,
-            socks5Password: resolvedHost.socks5Password || null,
-            socks5ProxyChain: resolvedHost.socks5ProxyChain
-              ? JSON.parse(resolvedHost.socks5ProxyChain as string)
-              : null,
-            portKnockSequence: normalizePortKnockSequence(
-              resolvedHost.portKnockSequence,
-            ),
-          };
+      // 主机可以同时启用多个协议；导出保留全部协议配置，避免克隆时丢失副协议认证。
+      const exportData = {
+        ...baseExportData,
+        enableSsh:
+          resolvedHost.enableSsh == null
+            ? exportedConnectionType === "ssh"
+            : !!resolvedHost.enableSsh,
+        sshPort:
+          resolvedHost.sshPort ||
+          (exportedConnectionType === "ssh" ? resolvedHost.port : 22),
+        enableRdp: !!resolvedHost.enableRdp,
+        enableVnc: !!resolvedHost.enableVnc,
+        enableTelnet: !!resolvedHost.enableTelnet,
+        rdpPort: resolvedHost.rdpPort || 3389,
+        vncPort: resolvedHost.vncPort || 5900,
+        telnetPort: resolvedHost.telnetPort || 23,
+        rdpAuthType: resolvedHost.rdpAuthType || null,
+        rdpCredentialId: resolvedHost.rdpCredentialId || null,
+        rdpUser: resolvedHost.rdpUser || null,
+        rdpPassword: resolvedHost.rdpPassword || null,
+        rdpDomain: resolvedHost.rdpDomain || null,
+        rdpSecurity: resolvedHost.rdpSecurity || null,
+        rdpIgnoreCert: !!resolvedHost.rdpIgnoreCert,
+        vncAuthType: resolvedHost.vncAuthType || null,
+        vncCredentialId: resolvedHost.vncCredentialId || null,
+        vncUser: resolvedHost.vncUser || null,
+        vncPassword: resolvedHost.vncPassword || null,
+        telnetAuthType: resolvedHost.telnetAuthType || null,
+        telnetCredentialId: resolvedHost.telnetCredentialId || null,
+        telnetUser: resolvedHost.telnetUser || null,
+        telnetPassword: resolvedHost.telnetPassword || null,
+        guacamoleConfig: resolvedHost.guacamoleConfig
+          ? JSON.parse(resolvedHost.guacamoleConfig as string)
+          : null,
+        authType: resolvedHost.authType,
+        useWarpgate: !!resolvedHost.useWarpgate,
+        vaultProfileId: resolvedHost.vaultProfileId || null,
+        allowSessionSharing:
+          resolvedHost.allowSessionSharing == null
+            ? true
+            : !!resolvedHost.allowSessionSharing,
+        enableSessionLogging:
+          resolvedHost.enableSessionLogging == null
+            ? true
+            : !!resolvedHost.enableSessionLogging,
+        enableCommandHistory:
+          resolvedHost.enableCommandHistory == null
+            ? true
+            : !!resolvedHost.enableCommandHistory,
+        key: resolvedHost.key || null,
+        keyPassword: resolvedHost.keyPassword || null,
+        keyType: resolvedHost.keyType || null,
+        credentialId: resolvedHost.credentialId || null,
+        overrideCredentialUsername: !!resolvedHost.overrideCredentialUsername,
+        enableTerminal: !!resolvedHost.enableTerminal,
+        enableTunnel: !!resolvedHost.enableTunnel,
+        enableFileManager: resolvedHost.enableFileManager !== false,
+        scpLegacy: !!resolvedHost.scpLegacy,
+        enableDocker: !!resolvedHost.enableDocker,
+        enableProxmox: !!resolvedHost.enableProxmox,
+        enableTmuxMonitor: !!resolvedHost.enableTmuxMonitor,
+        showTerminalInSidebar: !!resolvedHost.showTerminalInSidebar,
+        showFileManagerInSidebar: !!resolvedHost.showFileManagerInSidebar,
+        showTunnelInSidebar: !!resolvedHost.showTunnelInSidebar,
+        showDockerInSidebar: !!resolvedHost.showDockerInSidebar,
+        showServerStatsInSidebar: !!resolvedHost.showServerStatsInSidebar,
+        defaultPath: resolvedHost.defaultPath,
+        sudoPassword: resolvedHost.sudoPassword || null,
+        tunnelConnections: resolvedHost.tunnelConnections
+          ? JSON.parse(resolvedHost.tunnelConnections as string)
+          : [],
+        jumpHosts: resolvedHost.jumpHosts
+          ? JSON.parse(resolvedHost.jumpHosts as string)
+          : null,
+        quickActions: resolvedHost.quickActions
+          ? JSON.parse(resolvedHost.quickActions as string)
+          : null,
+        statsConfig: resolvedHost.statsConfig
+          ? JSON.parse(resolvedHost.statsConfig as string)
+          : null,
+        dockerConfig: resolvedHost.dockerConfig
+          ? JSON.parse(resolvedHost.dockerConfig as string)
+          : null,
+        proxmoxConfig: resolvedHost.proxmoxConfig
+          ? JSON.parse(resolvedHost.proxmoxConfig as string)
+          : null,
+        terminalConfig: resolvedHost.terminalConfig
+          ? JSON.parse(resolvedHost.terminalConfig as string)
+          : null,
+        forceKeyboardInteractive:
+          resolvedHost.forceKeyboardInteractive === "true",
+        useSocks5: !!resolvedHost.useSocks5,
+        socks5Host: resolvedHost.socks5Host || null,
+        socks5Port: resolvedHost.socks5Port || null,
+        socks5Username: resolvedHost.socks5Username || null,
+        socks5Password: resolvedHost.socks5Password || null,
+        socks5ProxyChain: resolvedHost.socks5ProxyChain
+          ? JSON.parse(resolvedHost.socks5ProxyChain as string)
+          : null,
+        portKnockSequence: normalizePortKnockSequence(
+          resolvedHost.portKnockSequence,
+        ),
+      };
 
       sshLogger.success("Host exported with decrypted credentials", {
         operation: "host_export",

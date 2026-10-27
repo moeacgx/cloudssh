@@ -444,6 +444,22 @@ export async function associateWorkspaceProjectHost(
   }
 }
 
+export async function migrateWorkspaceProjectHost(
+  sourceProjectId: string,
+  projectHostId: number,
+  targetProjectId: string,
+): Promise<WorkspaceProjectServer> {
+  try {
+    const response = await authApi.post(
+      `/control-plane/projects/${encodeWorkspaceProjectId(sourceProjectId)}/servers/${projectHostId}/migrate`,
+      { targetProjectId: requireResolvedWorkspaceProjectId(targetProjectId) },
+    );
+    return response.data.server;
+  } catch (error) {
+    throw handleApiError(error, "migrate workspace project host");
+  }
+}
+
 export async function removeWorkspaceProjectHost(
   projectId: string,
   projectHostId: number,

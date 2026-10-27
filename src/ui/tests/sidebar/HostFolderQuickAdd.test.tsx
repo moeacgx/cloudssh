@@ -1,9 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HostManager } from "../../sidebar/HostManager";
 import { SidebarTree } from "../../sidebar/SidebarTree";
+import { toast } from "sonner";
 
 const api = vi.hoisted(() => ({
   getSSHHosts: vi.fn(async () => []),
@@ -14,6 +15,7 @@ const api = vi.hoisted(() => ({
   renameCredentialFolder: vi.fn(),
   bulkUpdateSSHHosts: vi.fn(),
   createSSHHost: vi.fn(),
+  exportSSHHostWithCredentials: vi.fn(),
   deleteSSHHost: vi.fn(),
   getHostPassword: vi.fn(),
   renameFolder: vi.fn(),
@@ -23,9 +25,21 @@ const api = vi.hoisted(() => ({
 }));
 const workspaceApi = vi.hoisted(() => ({
   getWorkspaceProjectServers: vi.fn(async () => [] as unknown[]),
+  migrateWorkspaceProjectHost: vi.fn(),
 }));
 const workspace = vi.hoisted(() => ({
   activeProject: { id: "project-1", kind: "team" as const },
+  projects: [
+    { id: "project-1", name: "源项目", role: "project_admin", hostIds: [7] },
+    { id: "project-2", name: "目标项目", role: "project_admin", hostIds: [] },
+    { id: "project-3", name: "只读项目", role: "viewer", hostIds: [] },
+    {
+      id: "project-4",
+      name: "已共享项目",
+      role: "project_admin",
+      hostIds: [7],
+    },
+  ],
 }));
 
 vi.mock("@/main-axios", () => api);
@@ -89,9 +103,11 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 describe("文件夹快捷新增主机", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     workspace.activeProject = { id: "project-1", kind: "team" };
     api.getSSHHosts.mockResolvedValue([]);
     workspaceApi.getWorkspaceProjectServers.mockResolvedValue([]);
+    api.exportSSHHostWithCredentials.mockResolvedValue({});
   });
 
   it("主机行固定展示地区和 ISP", () => {
@@ -142,6 +158,105 @@ describe("文件夹快捷新增主机", () => {
     ).toBeTruthy();
   });
 
+  it.each([
+    { authType: "password", password: "server-secret" },
+    {
+      authType: "key",
+      key: "test-private-key",
+      keyPassword: "test-passphrase",
+    },
+    {
+      connectionType: "rdp",
+      enableSsh: false,
+      authType: "none",
+      rdpAuthType: "credential",
+      rdpCredentialId: 12,
+    },
+    {
+      connectionType: "telnet",
+      enableSsh: false,
+      authType: "none",
+      telnetAuthType: "credential",
+      telnetCredentialId: 13,
+    },
+    {
+      connectionType: "ssh",
+      authType: "password",
+      password: "ssh-secret",
+      enableVnc: true,
+      vncPassword: "vnc-secret",
+      allowSessionSharing: false,
+    },
+    { authType: "vault", vaultProfileId: 9, useWarpgate: true },
+  ])("克隆保留导出的认证及协议配置：%j", async (configuration) => {
+    api.exportSSHHostWithCredentials.mockResolvedValue({
+      id: 7,
+      name: "全局主机名称",
+      ip: "198.51.100.42",
+      port: 22,
+      username: "root",
+      authType: "password",
+      password: "server-secret",
+      tags: [],
+      connectionType: "ssh",
+      enableTerminal: true,
+      enableTunnel: false,
+      enableFileManager: true,
+      enableDocker: false,
+      enableSsh: true,
+      enableRdp: false,
+      enableVnc: false,
+      enableTelnet: false,
+      folder: "全局目录",
+      ...configuration,
+    });
+    render(
+      <SidebarTree
+        children={[
+          {
+            id: "7",
+            name: "生产入口",
+            ip: "198.51.100.42",
+            port: 22,
+            username: "root",
+            folder: "生产",
+            online: false,
+            authType: "password",
+            hasPassword: true,
+            tags: [],
+            enableSsh: true,
+            enableTerminal: true,
+            enableFileManager: true,
+            enableTunnel: false,
+            enableDocker: false,
+            enableRdp: false,
+            enableVnc: false,
+            enableTelnet: false,
+          } as never,
+        ]}
+        onOpenTab={vi.fn()}
+        onEditHost={vi.fn()}
+        selectionMode={false}
+        onToggleSelectionMode={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTitle("More options"));
+    await userEvent.click(await screen.findByText("hosts.cloneHostAction"));
+
+    await waitFor(() => {
+      expect(api.exportSSHHostWithCredentials).toHaveBeenCalledWith(7);
+      expect(api.createSSHHost).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "生产入口 (copy)",
+          folder: "生产",
+          ...configuration,
+        }),
+        "project-1",
+      );
+    });
+  });
+
   it("点击文件夹行的加号后打开主机表单并预填当前文件夹", async () => {
     render(
       <>
@@ -177,6 +292,148 @@ describe("文件夹快捷新增主机", () => {
     expect(
       screen.getByTestId("host-editor").getAttribute("data-initial-folder"),
     ).toBe("业务系统/生产环境");
+  });
+
+  function renderMigrationHost(canManage = true) {
+    return render(
+      <SidebarTree
+        children={[
+          {
+            id: "7",
+            projectHostId: "21",
+            name: "生产入口",
+            ip: "192.0.2.7",
+            port: 22,
+            username: "root",
+            authType: "password",
+            enableSsh: true,
+            enableTerminal: true,
+            enableFileManager: true,
+          } as never,
+        ]}
+        onOpenTab={vi.fn()}
+        onEditHost={vi.fn()}
+        selectionMode={false}
+        onToggleSelectionMode={vi.fn()}
+        projectFolderActions={{
+          canManage,
+          removeHosts: vi.fn(),
+          moveHosts: vi.fn(),
+          saveFolder: vi.fn(),
+          deleteFolder: vi.fn(),
+        }}
+      />,
+    );
+  }
+
+  it("更多菜单迁移主机时只展示可管理且未关联的项目", async () => {
+    workspaceApi.migrateWorkspaceProjectHost.mockResolvedValue({});
+    const changed = vi.fn();
+    window.addEventListener("termix:hosts-changed", changed);
+    try {
+      renderMigrationHost();
+      await userEvent.click(screen.getByTitle("More options"));
+      await userEvent.click(screen.getByText("hosts.migrateToProject"));
+      const dialog = screen.getByRole("dialog");
+      const target = within(dialog).getByRole("combobox");
+      expect(
+        within(target)
+          .getAllByRole("option")
+          .map((option) => option.textContent),
+      ).toEqual(["hosts.selectTargetProject", "目标项目"]);
+      const submit = within(dialog).getByRole("button", {
+        name: "hosts.migrateToProject",
+      });
+      expect(submit.hasAttribute("disabled")).toBe(true);
+      await userEvent.selectOptions(target, "project-2");
+      await userEvent.click(submit);
+      await waitFor(() =>
+        expect(workspaceApi.migrateWorkspaceProjectHost).toHaveBeenCalledWith(
+          "project-1",
+          21,
+          "project-2",
+        ),
+      );
+      expect(changed).toHaveBeenCalledOnce();
+      expect(api.createSSHHost).not.toHaveBeenCalled();
+      expect(api.deleteSSHHost).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      window.removeEventListener("termix:hosts-changed", changed);
+    }
+  });
+
+  it.each([
+    [
+      "Project host still has session history",
+      "hosts.projectMigrationHasHistory",
+    ],
+    [
+      "Host credentials could not be prepared for target project",
+      "hosts.projectMigrationCredentialsUnavailable",
+    ],
+  ])("迁移失败保留对话框并说明原因：%s", async (message, expectedKey) => {
+    workspaceApi.migrateWorkspaceProjectHost.mockRejectedValueOnce(
+      new Error(message),
+    );
+    renderMigrationHost();
+    await userEvent.click(screen.getByTitle("More options"));
+    await userEvent.click(screen.getByText("hosts.migrateToProject"));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.selectOptions(
+      within(dialog).getByRole("combobox"),
+      "project-2",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "hosts.migrateToProject" }),
+    );
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expectedKey));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("无项目管理权限时隐藏迁移入口", async () => {
+    renderMigrationHost(false);
+    await userEvent.click(screen.getByTitle("More options"));
+    expect(screen.queryByText("hosts.migrateToProject")).toBeNull();
+  });
+
+  it("切换项目关闭迁移选择，避免误操作其他项目", async () => {
+    const view = renderMigrationHost();
+    await userEvent.click(screen.getByTitle("More options"));
+    await userEvent.click(screen.getByText("hosts.migrateToProject"));
+    workspace.activeProject = { id: "project-2", kind: "team" };
+    // 触发同一组件读取更新后的工作区。
+    view.rerender(
+      <SidebarTree
+        children={[]}
+        onOpenTab={vi.fn()}
+        onEditHost={vi.fn()}
+        selectionMode={false}
+        onToggleSelectionMode={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(workspaceApi.migrateWorkspaceProjectHost).not.toHaveBeenCalled();
+  });
+
+  it("认证导出失败时不创建副本且不广播主机变化", async () => {
+    api.exportSSHHostWithCredentials.mockRejectedValueOnce(
+      new Error("Access denied"),
+    );
+    const changed = vi.fn();
+    window.addEventListener("termix:hosts-changed", changed);
+    try {
+      renderMigrationHost();
+      await userEvent.click(screen.getByTitle("More options"));
+      await userEvent.click(screen.getByText("hosts.cloneHostAction"));
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith("hosts.failedToDuplicateHost"),
+      );
+      expect(api.createSSHHost).not.toHaveBeenCalled();
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("termix:hosts-changed", changed);
+    }
   });
 
   it("主机编辑器只加载当前项目关联的主机", async () => {
