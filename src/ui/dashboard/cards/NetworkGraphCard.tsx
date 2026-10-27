@@ -20,6 +20,8 @@ import {
 } from "@/main-axios";
 import { Button } from "@/components/button";
 import { Badge } from "@/components/badge";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -127,6 +129,7 @@ function buildNodeSvg(
   ip: string,
   tags: string[],
   status: string,
+  hostId: string,
 ): string {
   const isOnline = status === "online";
   const isOffline = status === "offline";
@@ -151,6 +154,12 @@ function buildNodeSvg(
   const W = NODE_W * dpr;
   const H = NODE_H * dpr;
   const s = dpr;
+  const idLabel = formatHostLabel("", hostId).replace(/^ · /, "");
+  // 给主机 ID 单独预留宽度，长名称只裁剪名称区域。
+  const nameWidth = Math.max(
+    40,
+    175 - (idLabel ? idLabel.length * 5.5 + 8 : 0),
+  );
 
   const esc = (str: string) =>
     str.replace(
@@ -179,7 +188,7 @@ function buildNodeSvg(
       <feDropShadow dx="0" dy="${1 * s}" stdDeviation="${2 * s}" flood-color="#000" flood-opacity="0.25"/>
     </filter>
     <clipPath id="nameClip">
-      <rect x="${14 * s}" y="${10 * s}" width="${175 * s}" height="${20 * s}"/>
+      <rect x="${14 * s}" y="${10 * s}" width="${nameWidth * s}" height="${20 * s}"/>
     </clipPath>
   </defs>
   <rect x="0" y="0" width="${W}" height="${H}" rx="${3 * s}" fill="${bg}" stroke="${border}" stroke-width="${s}" filter="url(#shadow)"/>
@@ -187,6 +196,7 @@ function buildNodeSvg(
   <rect x="0" y="0" width="${5 * s}" height="${H}" fill="${statusColor}"/>
   <g transform="translate(${W - 20 * s} ${3 * s})">${serverIcon}</g>
   <text x="${14 * s}" y="${28 * s}" font-family="-apple-system,BlinkMacSystemFont,system-ui,sans-serif" font-size="${13 * s}" font-weight="700" fill="${textPrimary}" xml:space="preserve" clip-path="url(#nameClip)">${esc(name)}</text>
+  ${idLabel ? `<text x="${196 * s}" y="${28 * s}" text-anchor="end" font-family="ui-monospace,monospace,sans-serif" font-size="${9 * s}" fill="${textSecondary}">${esc(idLabel)}</text>` : ""}
   <text x="${14 * s}" y="${46 * s}" font-family="ui-monospace,monospace,sans-serif" font-size="${11 * s}" fill="${textSecondary}" xml:space="preserve">${esc(ip)}</text>
   ${tagsHtml ? `<foreignObject x="${12 * s}" y="${56 * s}" width="${196 * s}" height="${24 * s}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;gap:${2 * s}px;flex-wrap:nowrap;overflow:hidden;">${tagsHtml}</div></foreignObject>` : ""}
 </svg>`,
@@ -452,6 +462,7 @@ export function NetworkGraphCard({
             ele.data("ip") || "",
             ele.data("tags") || [],
             ele.data("status") || "unknown",
+            ele.id(),
           ),
         "background-fit": "contain",
       })
@@ -962,7 +973,7 @@ export function NetworkGraphCard({
                 <option value="">{t("networkGraph.chooseHost")}</option>
                 {availableHostsForAdd.map((h) => (
                   <option key={h.id} value={String(h.id)}>
-                    {h.name || h.ip}
+                    {formatHostLabel(h.name || h.ip, h.id)}
                   </option>
                 ))}
               </select>
@@ -1126,7 +1137,7 @@ export function NetworkGraphCard({
                 </option>
                 {availableNodesForConnection.map((el) => (
                   <option key={el.id} value={el.id}>
-                    {el.label}
+                    {formatHostLabel(el.label, el.id)}
                   </option>
                 ))}
               </select>
@@ -1143,7 +1154,7 @@ export function NetworkGraphCard({
                 </option>
                 {availableNodesForConnection.map((el) => (
                   <option key={el.id} value={el.id}>
-                    {el.label}
+                    {formatHostLabel(el.label, el.id)}
                   </option>
                 ))}
               </select>
@@ -1173,7 +1184,10 @@ export function NetworkGraphCard({
                 <span className="font-semibold text-muted-foreground">
                   {t("networkGraph.name")}
                 </span>
-                <span>{selectedNodeForDetail.name}</span>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate">{selectedNodeForDetail.name}</span>
+                  <HostIdBadge hostId={selectedNodeForDetail.id} />
+                </div>
                 <span className="font-semibold text-muted-foreground">
                   {t("networkGraph.ip")}
                 </span>

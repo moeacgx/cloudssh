@@ -1,4 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
+import { formatHostLabel } from "@/lib/host-id";
 import React, {
   useState,
   useEffect,
@@ -2617,7 +2618,10 @@ function FileManagerContent({
     );
 
     openWindow({
-      title: t("fileManager.terminal", { host: currentHost.name, path }),
+      title: t("fileManager.terminal", {
+        host: formatHostLabel(currentHost.name, currentHost.id),
+        path,
+      }),
       x: offsetX,
       y: offsetY,
       width: 800,
@@ -2628,7 +2632,10 @@ function FileManagerContent({
     });
 
     toast.success(
-      t("terminal.terminalWithPath", { host: currentHost.name, path }),
+      t("terminal.terminalWithPath", {
+        host: formatHostLabel(currentHost.name, currentHost.id),
+        path,
+      }),
     );
   }
 

@@ -1,4 +1,6 @@
 import React from "react";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import { Button } from "@/components/button.tsx";
 import { Input } from "@/components/input.tsx";
 import { FakeSwitch } from "@/components/section-card.tsx";
@@ -307,7 +309,10 @@ export function C2STunnelPresetManager(): React.ReactElement {
     (tunnel: ClientTunnel) => {
       const mode = getTunnelMode(tunnel);
       const bindHost = getEffectiveBindHost(tunnel.bindHost);
-      const endpointName = getEndpointName(tunnel);
+      const endpointName = formatHostLabel(
+        getEndpointName(tunnel),
+        tunnel.sourceHostId,
+      );
       if (mode === "remote") {
         return t("tunnels.summaryClientRemote", {
           endpoint: endpointName,
@@ -762,6 +767,7 @@ export function C2STunnelPresetManager(): React.ReactElement {
                   <span className="text-xs font-medium flex-1 min-w-0 truncate">
                     {getTunnelDisplayName(tunnel, index)}
                   </span>
+                  <HostIdBadge hostId={tunnel.sourceHostId} />
                   <span
                     className={`text-[9px] font-bold px-1 py-px border uppercase shrink-0 ${statusClass}`}
                     title={statusTitle}
@@ -919,7 +925,7 @@ export function C2STunnelPresetManager(): React.ReactElement {
                         </option>
                         {sshHosts.map((host) => (
                           <option key={host.id} value={String(host.id)}>
-                            {host.name}
+                            {formatHostLabel(host.name, host.id)}
                           </option>
                         ))}
                       </select>

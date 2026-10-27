@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -71,6 +72,7 @@ export function QuickConnectEditForm({
                 className="accent-accent-brand"
               />
               <span className="truncate">{h.name || h.ip}</span>
+              <HostIdBadge hostId={h.id} />
             </label>
           ))}
         </div>

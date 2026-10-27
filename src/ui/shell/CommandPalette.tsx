@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Kbd } from "@/components/kbd";
+import { HostIdBadge } from "@/components/host-id-badge";
 import {
   Command,
   CommandItem,
@@ -346,9 +347,12 @@ export function CommandPalette({
                         {ACTIVITY_ICONS[item.type]}
                       </div>
                       <div className="flex flex-col flex-1 min-w-0">
-                        <span className="text-sm font-semibold truncate">
-                          {item.hostName}
-                        </span>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="text-sm font-semibold truncate">
+                            {item.hostName}
+                          </span>
+                          <HostIdBadge hostId={item.hostId} />
+                        </div>
                         <span className="text-xs text-muted-foreground capitalize">
                           {item.type.replace("_", " ")}
                         </span>
@@ -415,6 +419,7 @@ export function CommandPalette({
                               <span className="text-sm font-semibold truncate">
                                 {host.name}
                               </span>
+                              <HostIdBadge hostId={host.id} />
                               {host.isShared && (
                                 <span className="text-[9px] px-1 py-px border border-accent-brand/30 bg-accent-brand/10 text-accent-brand shrink-0 leading-none uppercase tracking-wider">
                                   {t("hosts.sharing.sharedBadge")}

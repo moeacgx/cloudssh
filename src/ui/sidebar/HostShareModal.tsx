@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
 import {
   ArrowLeft,
   Check,
@@ -339,6 +340,7 @@ export function HostShareModal({
             ? t("hosts.shareFolderTitle", { name: folder ?? "" })
             : t("hosts.shareHostTitle", { name: host?.name ?? "" })}
         </span>
+        {!isFolderShare && <HostIdBadge hostId={host?.id} />}
       </button>
 
       {sharingLoadError && (

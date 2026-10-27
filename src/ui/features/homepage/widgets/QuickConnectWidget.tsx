@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useState, useEffect } from "react";
 import {
   Terminal,
@@ -127,6 +128,7 @@ function QuickConnectWidget({
                 <span className="text-xs font-medium text-foreground truncate">
                   {host.name || host.ip}
                 </span>
+                <HostIdBadge hostId={host.id} />
               </div>
               <div className="flex items-center gap-1 shrink-0 flex-wrap">
                 {availableTypes.map((type) => (

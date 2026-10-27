@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/button";
 import { HostNetworkInfoView } from "@/components/host-network-info";
+import { HostIdBadge } from "@/components/host-id-badge";
 import { getActiveSessions, getSSHHosts } from "@/main-axios";
 import type { ActiveSessionInfo, SSHHostWithStatus } from "@/main-axios";
 import { sshHostToHost } from "@/sidebar/HostManagerData";
@@ -488,18 +489,22 @@ function ProjectOverviewContent({
                             Agent
                           </span>
                         </div>
-                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                          {session.serverName} · {t("workspace.agentActor")} ·{" "}
-                          {t(
-                            session.state === "CREATING"
-                              ? "workspace.sessionStateCreating"
-                              : session.state === "RUNNING"
-                                ? "workspace.sessionStateRunning"
-                                : session.state === "RECOVERING"
-                                  ? "workspace.sessionStateRecovering"
-                                  : "workspace.sessionStateClosing",
-                          )}
-                        </p>
+                        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <span className="truncate">{session.serverName}</span>
+                          <HostIdBadge hostId={host?.id} />
+                          <span className="truncate">
+                            · {t("workspace.agentActor")} ·{" "}
+                            {t(
+                              session.state === "CREATING"
+                                ? "workspace.sessionStateCreating"
+                                : session.state === "RUNNING"
+                                  ? "workspace.sessionStateRunning"
+                                  : session.state === "RECOVERING"
+                                    ? "workspace.sessionStateRecovering"
+                                    : "workspace.sessionStateClosing",
+                            )}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-1.5">
                         {hostModel && onOpenAgentSession && (
@@ -618,9 +623,12 @@ function ProjectOverviewContent({
                       className={`size-2 rounded-full ${host.status === "online" ? "bg-emerald-500" : "bg-muted-foreground/35"}`}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">
-                        {host.name}
-                      </p>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <p className="truncate text-xs font-medium">
+                          {host.name}
+                        </p>
+                        <HostIdBadge hostId={host.id} />
+                      </div>
                       <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
                         {host.username}@{host.ip}:{host.port}
                       </p>

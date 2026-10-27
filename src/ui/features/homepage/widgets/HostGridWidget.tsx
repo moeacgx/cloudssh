@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useCallback, useState } from "react";
 import { LayoutGrid } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -101,9 +102,12 @@ function HostGridWidget({
           >
             <StatusDot status={host.status ?? "unknown"} />
             <div className="flex flex-col min-w-0">
-              <span className="text-[10px] font-medium text-foreground truncate">
-                {host.name}
-              </span>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="text-[10px] font-medium text-foreground truncate">
+                  {host.name}
+                </span>
+                <HostIdBadge hostId={host.id} />
+              </div>
               {showIp && (
                 <span className="text-[9px] text-muted-foreground truncate">
                   {host.ip}

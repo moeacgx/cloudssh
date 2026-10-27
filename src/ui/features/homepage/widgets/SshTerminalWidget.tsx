@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useState, useRef, useEffect } from "react";
 import { Terminal as TerminalIcon, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -111,9 +112,12 @@ function SshTerminalWidget({
       >
         <div className="flex flex-col items-center gap-1">
           <TerminalIcon size={16} className="text-muted-foreground/60" />
-          <span className="text-xs font-medium text-foreground">
-            {host.name || host.ip}
-          </span>
+          <div className="flex max-w-full min-w-0 items-center gap-1.5">
+            <span className="truncate text-xs font-medium text-foreground">
+              {host.name || host.ip}
+            </span>
+            <HostIdBadge hostId={host.id} />
+          </div>
           <span className="text-[10px] text-muted-foreground/50">
             {host.username}@{host.ip}
           </span>

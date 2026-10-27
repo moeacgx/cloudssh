@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import { copyToClipboard } from "@/lib/clipboard";
 import { usePageVisibleInterval } from "@/hooks/use-page-visible-interval";
 import { Input } from "@/components/input";
@@ -111,9 +113,12 @@ function LogRow({
       </div>
 
       <div className="flex flex-col flex-1 min-w-0 gap-0.5">
-        <span className="text-xs font-semibold truncate text-foreground">
-          {hostLabel}
-        </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="text-xs font-semibold truncate text-foreground">
+            {hostLabel}
+          </span>
+          <HostIdBadge hostId={log.hostId} />
+        </div>
         <span className="text-[10px] text-muted-foreground/60 truncate">
           {formatDate(log.startedAt)}
           {" · "}
@@ -314,9 +319,12 @@ export function SessionLogsPanel() {
             <ArrowLeft className="size-3.5" />
           </button>
           <div className="flex flex-col flex-1 min-w-0">
-            <span className="text-xs font-semibold truncate text-foreground">
-              {hostLabel}
-            </span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="text-xs font-semibold truncate text-foreground">
+                {hostLabel}
+              </span>
+              <HostIdBadge hostId={viewLog.hostId} />
+            </div>
             <span className="text-[10px] text-muted-foreground/50">
               {formatDate(viewLog.startedAt)}
               {` · ${viewLog.protocol.toUpperCase()}`}
@@ -487,9 +495,12 @@ export function SessionLogsPanel() {
               {t("sessionLogs.confirmDelete")}
             </p>
             <p className="text-xs text-muted-foreground">
-              {deleteTarget.hostName ??
-                deleteTarget.hostIp ??
-                `Session ${deleteTarget.id}`}
+              {formatHostLabel(
+                deleteTarget.hostName ??
+                  deleteTarget.hostIp ??
+                  `Session ${deleteTarget.id}`,
+                deleteTarget.hostId,
+              )}
               {" · "}
               {formatDate(deleteTarget.startedAt)}
             </p>

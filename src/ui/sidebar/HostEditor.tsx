@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import { copyToClipboard } from "@/lib/clipboard";
 import {
   TERMINAL_THEMES,
@@ -556,6 +558,7 @@ export function HostEditor({
 
   return (
     <div className="flex flex-col gap-3">
+      {host && <HostIdBadge hostId={host.id} />}
       {isSharedHost && (
         <div className="flex items-start gap-2.5 p-3 border border-accent-brand/30 bg-accent-brand/5 text-xs text-muted-foreground">
           <Shield className="size-3.5 shrink-0 mt-0.5 text-accent-brand" />
@@ -2401,7 +2404,8 @@ export function HostEditor({
                                   .filter((h) => h.enableSsh)
                                   .map((h) => (
                                     <option key={h.id} value={h.ip}>
-                                      {h.name || h.ip} ({h.ip})
+                                      {formatHostLabel(h.name || h.ip, h.id)} (
+                                      {h.ip})
                                     </option>
                                   ))}
                               </datalist>

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -823,9 +825,12 @@ export function AdminUserManagePanel({
                   className="flex items-center justify-between py-2.5 border-b border-border last:border-0"
                 >
                   <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="text-xs font-semibold truncate max-w-[180px]">
-                      {host.name || host.ip}
-                    </span>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="text-xs font-semibold truncate max-w-[180px]">
+                        {host.name || host.ip}
+                      </span>
+                      <HostIdBadge hostId={host.id} />
+                    </div>
                     <span className="text-[10px] font-mono text-muted-foreground truncate">
                       {host.username ? `${host.username}@` : ""}
                       {host.ip}:{host.port}
@@ -871,7 +876,10 @@ export function AdminUserManagePanel({
                       onClick={() =>
                         setConfirmDialog({
                           message: t("admin.deleteHostConfirm", {
-                            name: host.name || host.ip,
+                            name: formatHostLabel(
+                              host.name || host.ip,
+                              host.id,
+                            ),
                             username: user.username,
                           }),
                           onConfirm: async () => {

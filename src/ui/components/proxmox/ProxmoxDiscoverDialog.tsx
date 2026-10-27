@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useTranslation } from "react-i18next";
 import { Server, RefreshCw, CheckSquare, Square, Download } from "lucide-react";
 import { toast } from "sonner";
@@ -273,7 +274,10 @@ export function ProxmoxDiscoverDialog({
                       value={String(h.id)}
                       className="text-xs"
                     >
-                      {h.name || h.ip}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate">{h.name || h.ip}</span>
+                        <HostIdBadge hostId={h.id} />
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>

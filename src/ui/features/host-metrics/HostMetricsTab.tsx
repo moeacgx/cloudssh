@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import React from "react";
+import { HostIdBadge } from "@/components/host-id-badge";
 import { Separator } from "@/components/separator.tsx";
 import { Button } from "@/components/button.tsx";
 import {
@@ -574,11 +575,16 @@ function HostMetricsInner({
         <div className="flex flex-1 flex-col overflow-x-hidden overflow-y-auto">
           {!totpRequired && !isLoadingMetrics && !hasConnectionError && (
             <div className="mx-3 mt-3 flex shrink-0 items-center justify-between border border-border bg-card px-3 py-3">
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <div className="flex size-10 shrink-0 items-center justify-center border border-border bg-muted">
                   <Server className="size-5 text-accent-brand" />
                 </div>
-                <h1 className="text-lg font-bold md:text-2xl">{title}</h1>
+                <div className="flex min-w-0 items-center gap-2">
+                  <h1 className="truncate text-lg font-bold md:text-2xl">
+                    {title}
+                  </h1>
+                  <HostIdBadge hostId={currentHostConfig?.id} />
+                </div>
               </div>
               <div className="flex items-center gap-0">
                 {currentHostConfig?.quickActions &&

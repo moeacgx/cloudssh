@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
 import {
   Bot,
   ExternalLink,
@@ -119,6 +120,7 @@ function ConnectionRow({
   isLive,
   tabType,
   name,
+  hostId,
   hostName,
   subLabel,
   icon,
@@ -136,6 +138,7 @@ function ConnectionRow({
   isLive: boolean;
   tabType: string;
   name: string;
+  hostId?: string | number | null;
   hostName?: string;
   subLabel: string;
   icon: React.ReactNode;
@@ -233,6 +236,7 @@ function ConnectionRow({
               {name}
             </span>
           )}
+          <HostIdBadge hostId={hostId} />
           <Badge
             variant="outline"
             className="text-[9px] px-1 py-0 h-4 font-mono shrink-0 text-muted-foreground/60 border-border/60"
@@ -672,6 +676,7 @@ export function ConnectionsPanel({
                   isLive={isLive}
                   tabType={tab.type}
                   name={displayName}
+                  hostId={tab.host?.id}
                   hostName={tab.customLabel ? hostName : undefined}
                   subLabel={
                     isPinned && tab.type === "terminal"
@@ -756,6 +761,7 @@ export function ConnectionsPanel({
                 isPinned={isPinned}
                 tabType={record.tabType}
                 name={host?.name ?? record.label}
+                hostId={host?.id ?? record.hostId}
                 subLabel={
                   isPinned
                     ? t(pinnedSessionLabelKey(isManagedTmux))
@@ -896,6 +902,7 @@ function AgentSessionRow({
             <span className="truncate text-xs font-semibold text-foreground">
               {session.hostName}
             </span>
+            <HostIdBadge hostId={session.hostId} />
             <Badge className="h-4 shrink-0 border-violet-400/40 bg-violet-500/10 px-1 text-[9px] text-violet-600 dark:text-violet-300">
               Agent
             </Badge>
@@ -1022,6 +1029,7 @@ function SharedWithMeRow({
           <span className="text-xs font-semibold truncate flex-1 text-foreground">
             {session.hostName}
           </span>
+          <HostIdBadge hostId={session.hostId} />
           <Badge
             variant="outline"
             className={`text-[9px] px-1 py-0 h-4 font-mono shrink-0 border-border/60 ${

@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useEffect, useState } from "react";
 import { Container } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -80,9 +81,12 @@ function DockerActivityWidget({
             <Container size={10} className="shrink-0 text-muted-foreground" />
             <div className="flex flex-col min-w-0 flex-1">
               {showHostName && (
-                <span className="text-[10px] font-medium text-foreground truncate">
-                  {item.hostName}
-                </span>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="text-[10px] font-medium text-foreground truncate">
+                    {item.hostName}
+                  </span>
+                  <HostIdBadge hostId={item.hostId} />
+                </div>
               )}
               <span className="text-[9px] text-muted-foreground">
                 {relativeTime(item.timestamp)}

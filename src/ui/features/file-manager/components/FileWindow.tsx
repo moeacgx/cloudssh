@@ -1,4 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
+import { formatHostLabel } from "@/lib/host-id";
 import React, { useState, useEffect, useRef } from "react";
 import { DraggableWindow } from "./DraggableWindow.tsx";
 import { FileViewer } from "./FileViewer.tsx";
@@ -234,7 +235,7 @@ export function FileWindow({
           err.message?.includes("established")
         ) {
           toast.error(
-            `SSH connection failed. Please check your connection to ${sshHost.name} (${sshHost.ip}:${sshHost.port})`,
+            `SSH connection failed. Please check your connection to ${formatHostLabel(sshHost.name, sshHost.id)} (${sshHost.ip}:${sshHost.port})`,
           );
         } else {
           const errorMessage =
@@ -333,7 +334,7 @@ export function FileWindow({
         err.message?.includes("established")
       ) {
         toast.error(
-          `SSH connection failed. Please check your connection to ${sshHost.name} (${sshHost.ip}:${sshHost.port})`,
+          `SSH connection failed. Please check your connection to ${formatHostLabel(sshHost.name, sshHost.id)} (${sshHost.ip}:${sshHost.port})`,
         );
       } else {
         toast.error(
@@ -499,7 +500,7 @@ export function FileWindow({
         err.message?.includes("established")
       ) {
         toast.error(
-          `SSH connection failed. Please check your connection to ${sshHost.name} (${sshHost.ip}:${sshHost.port})`,
+          `SSH connection failed. Please check your connection to ${formatHostLabel(sshHost.name, sshHost.id)} (${sshHost.ip}:${sshHost.port})`,
         );
       } else {
         toast.error(

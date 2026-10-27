@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Tab } from "@/types/ui-types";
+import type { Host, Tab } from "@/types/ui-types";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -56,6 +56,19 @@ function renderTabBar(
 afterEach(cleanup);
 
 describe("TabBar - 固定窗口", () => {
+  it("自定义标签旁显示真实主机 ID，不使用项目关联 ID", () => {
+    renderTabBar(
+      terminalTab({
+        label: "自定义窗口名",
+        host: { id: "42", projectHostId: "99" } as Host,
+      }),
+    );
+
+    expect(screen.getByText("自定义窗口名")).toBeTruthy();
+    expect(screen.getByText("#42")).toBeTruthy();
+    expect(screen.queryByText("#99")).toBeNull();
+  });
+
   it("会把可用终端的图钉操作交给上层", () => {
     const onToggleSessionPin = renderTabBar(terminalTab());
 

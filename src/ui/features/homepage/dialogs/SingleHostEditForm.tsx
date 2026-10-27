@@ -1,3 +1,4 @@
+import { formatHostLabel } from "@/lib/host-id";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getSSHHosts } from "@/api/ssh-host-management-api";
@@ -36,7 +37,7 @@ export function SingleHostEditForm({
         <option value="">{t("homepage.selectHost")}</option>
         {hosts.map((h) => (
           <option key={h.id} value={h.id}>
-            {h.name || h.ip}
+            {formatHostLabel(h.name || h.ip, h.id)}
           </option>
         ))}
       </select>

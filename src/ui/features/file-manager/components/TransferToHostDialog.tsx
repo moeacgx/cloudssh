@@ -1,3 +1,5 @@
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import React, {
   useCallback,
   useEffect,
@@ -209,9 +211,9 @@ export function TransferToHostDialog({
 
   const sourceLabel = useMemo(() => {
     if (files.length === 1) {
-      return `${sourceHost.name || sourceHost.ip}:${files[0].path}`;
+      return `${formatHostLabel(sourceHost.name || sourceHost.ip, sourceHost.id)}:${files[0].path}`;
     }
-    return `${sourceHost.name || sourceHost.ip}: ${t("transfer.itemsSummary", { count: files.length })}`;
+    return `${formatHostLabel(sourceHost.name || sourceHost.ip, sourceHost.id)}: ${t("transfer.itemsSummary", { count: files.length })}`;
   }, [files, sourceHost, t]);
 
   const selectedHost = availableHosts.find(
@@ -425,10 +427,10 @@ export function TransferToHostDialog({
     };
   }, [destPath, selectedHost, isHostReady, open, loadBrowseDirectory]);
 
-  const hostName = (hostId: number) =>
-    availableHosts.find((h) => h.id === hostId)?.name ||
-    availableHosts.find((h) => h.id === hostId)?.ip ||
-    hostId.toString();
+  const hostName = (hostId: number) => {
+    const host = availableHosts.find((h) => h.id === hostId);
+    return host?.name || host?.ip || hostId.toString();
+  };
 
   const handleSelectDestination = (destHostId: number, path: string) => {
     pendingBrowsePathRef.current = path;
@@ -684,10 +686,15 @@ export function TransferToHostDialog({
                 : t("transfer.copyToHost")}
           </DialogTitle>
           <DialogDescription
-            className="text-[10px] font-bold uppercase tracking-tight text-muted-foreground font-mono truncate"
+            className="flex min-w-0 items-center gap-2 text-[10px] font-bold uppercase tracking-tight text-muted-foreground font-mono"
             title={sourceLabel}
           >
-            {sourceLabel}
+            <span className="truncate">
+              {files.length === 1
+                ? `${sourceHost.name || sourceHost.ip}:${files[0].path}`
+                : `${sourceHost.name || sourceHost.ip}: ${t("transfer.itemsSummary", { count: files.length })}`}
+            </span>
+            <HostIdBadge hostId={sourceHost.id} />
           </DialogDescription>
         </DialogHeader>
 
@@ -723,7 +730,7 @@ export function TransferToHostDialog({
                     </option>
                     {availableHosts.map((host) => (
                       <option key={host.id} value={host.id.toString()}>
-                        {host.name || host.ip}
+                        {formatHostLabel(host.name || host.ip, host.id)}
                       </option>
                     ))}
                   </select>
@@ -770,14 +777,17 @@ export function TransferToHostDialog({
                           <span className="block truncate text-xs font-semibold">
                             {entry.name}
                           </span>
-                          <span
-                            className="block truncate text-[10px] text-muted-foreground font-mono"
-                            title={entry.path}
-                          >
-                            {formatTruncatedDestination(
-                              selectedHost.name || selectedHost.ip,
-                              entry.path,
-                            )}
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span
+                              className="truncate text-[10px] text-muted-foreground font-mono"
+                              title={entry.path}
+                            >
+                              {formatTruncatedDestination(
+                                selectedHost.name || selectedHost.ip,
+                                entry.path,
+                              )}
+                            </span>
+                            <HostIdBadge hostId={selectedHost.id} />
                           </span>
                         </button>
                         <button
@@ -822,7 +832,7 @@ export function TransferToHostDialog({
                           key={recent.id}
                           type="button"
                           className={`w-full min-w-0 text-left px-3 py-2 hover:bg-accent-brand/10 hover:text-accent-brand transition-colors ${i < recents.length - 1 ? "border-b border-border" : ""}`}
-                          title={`${hostName(recent.destHostId)}:${recent.destPathLabel || recent.destPath}`}
+                          title={`${formatHostLabel(hostName(recent.destHostId), recent.destHostId)}:${recent.destPathLabel || recent.destPath}`}
                           onClick={() =>
                             handleSelectDestination(
                               recent.destHostId,
@@ -830,11 +840,14 @@ export function TransferToHostDialog({
                             )
                           }
                         >
-                          <span className="block truncate text-xs font-semibold">
-                            {formatTruncatedDestination(
-                              hostName(recent.destHostId),
-                              recent.destPathLabel || recent.destPath,
-                            )}
+                          <span className="flex min-w-0 items-center gap-2 text-xs font-semibold">
+                            <span className="truncate">
+                              {formatTruncatedDestination(
+                                hostName(recent.destHostId),
+                                recent.destPathLabel || recent.destPath,
+                              )}
+                            </span>
+                            <HostIdBadge hostId={recent.destHostId} />
                           </span>
                         </button>
                       ))}

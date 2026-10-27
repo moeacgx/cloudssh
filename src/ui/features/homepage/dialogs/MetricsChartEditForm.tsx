@@ -1,3 +1,4 @@
+import { formatHostLabel } from "@/lib/host-id";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -52,7 +53,7 @@ export function MetricsChartEditForm({
           <option value={0}>{t("homepage.selectHost")}</option>
           {hosts.map((h) => (
             <option key={h.id} value={h.id}>
-              {h.name}
+              {formatHostLabel(h.name, h.id)}
             </option>
           ))}
         </select>
