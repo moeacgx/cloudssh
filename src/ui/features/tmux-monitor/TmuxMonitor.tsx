@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -784,7 +786,10 @@ export function TmuxMonitor({
 
   const selectedHost = hosts.find((h) => h.id === selectedHostId);
   const hostLabel = selectedHost
-    ? selectedHost.name || `${selectedHost.username}@${selectedHost.ip}`
+    ? formatHostLabel(
+        selectedHost.name || `${selectedHost.username}@${selectedHost.ip}`,
+        selectedHost.id,
+      )
     : "";
   const selectedPaneMetrics = selectedPane
     ? metricsByPane.get(selectedPane.paneId)
@@ -997,8 +1002,12 @@ export function TmuxMonitor({
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <Server className="size-4 shrink-0 text-muted-foreground" />
           <span className="truncate text-sm">
-            {selectedHost ? hostLabel : t("tmuxMonitor.noHostSelected")}
+            {selectedHost
+              ? selectedHost.name ||
+                `${selectedHost.username}@${selectedHost.ip}`
+              : t("tmuxMonitor.noHostSelected")}
           </span>
+          {selectedHost && <HostIdBadge hostId={selectedHost.id} />}
           <div className="ml-auto flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />

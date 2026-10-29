@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useEffect, useState } from "react";
 import { Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -202,6 +203,7 @@ function HostStatusWidget({
           <span className="text-xs font-semibold text-foreground truncate flex-1">
             {hostName ?? `Host #${hostId}`}
           </span>
+          <HostIdBadge hostId={hostId} />
           <span className="flex items-center gap-1 shrink-0">
             <span
               className="w-1.5 h-1.5 shrink-0 rounded-full"

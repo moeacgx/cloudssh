@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { HostIdBadge } from "@/components/host-id-badge";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 
@@ -145,8 +146,11 @@ function TunnelCard({
               <span className="text-muted-foreground font-semibold">
                 {t("tunnels.host")}
               </span>
-              <span className="font-mono">
-                {host.name || `${host.username}@${host.ip}`}
+              <span className="flex min-w-0 items-center gap-2 font-mono">
+                <span className="truncate">
+                  {host.name || `${host.username}@${host.ip}`}
+                </span>
+                <HostIdBadge hostId={host.id} />
               </span>
             </div>
             <div className="flex justify-between items-center">
@@ -445,12 +449,15 @@ export function TunnelTab({
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
         <Card className="flex-row items-center justify-between px-3 py-3 shrink-0 gap-0">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="size-10 border border-border bg-muted flex items-center justify-center shrink-0">
               <Network className="size-5 text-accent-brand" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold">{host.name}</h1>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-2xl font-bold">{host.name}</h1>
+                <HostIdBadge hostId={host.id} />
+              </div>
               <div className="flex items-center gap-2">
                 <span className="size-2 rounded-full bg-accent-brand" />
                 <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">

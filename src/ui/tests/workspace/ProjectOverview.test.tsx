@@ -279,6 +279,8 @@ describe("ProjectOverview", () => {
     render(<ProjectOverview onOpenTab={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText("项目别名")).toBeTruthy());
+    expect(screen.getByText("#7")).toBeTruthy();
+    expect(screen.queryByText("#71")).toBeNull();
     expect(screen.queryByText("原始名称")).toBeNull();
     expect(screen.queryByText("其他项目主机")).toBeNull();
     expect(
@@ -376,6 +378,8 @@ describe("ProjectOverview", () => {
     render(<ProjectOverview onOpenTab={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText("Agent 长任务")).toBeTruthy());
+    expect(screen.getAllByText("#7")).toHaveLength(2);
+    expect(screen.queryByText("#71")).toBeNull();
     expect(screen.queryByText("网页固定窗口")).toBeNull();
     expect(screen.getAllByText("Agent").length).toBeGreaterThan(0);
   });

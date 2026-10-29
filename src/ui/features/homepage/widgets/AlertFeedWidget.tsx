@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useEffect, useState } from "react";
 import {
   Bell,
@@ -139,9 +140,11 @@ function AlertFeedWidget({
               <span className="text-[10px] font-semibold text-foreground truncate">
                 {f.ruleName ?? f.message}
               </span>
-              <span className="text-[9px] text-muted-foreground truncate">
-                {f.hostName} · {relativeTime(f.firedAt)}
-              </span>
+              <div className="flex min-w-0 items-center gap-1.5 text-[9px] text-muted-foreground">
+                <span className="truncate">{f.hostName}</span>
+                <HostIdBadge hostId={f.hostId} />
+                <span className="truncate">· {relativeTime(f.firedAt)}</span>
+              </div>
             </div>
             {!f.acknowledged && (
               <button

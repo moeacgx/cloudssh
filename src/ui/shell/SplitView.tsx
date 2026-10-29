@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, memo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { splitDragState, notifyDragEnd } from "@/lib/splitDragging";
 import { tabIcon } from "@/shell/tabUtils";
+import { HostIdBadge } from "@/components/host-id-badge";
 import type { Tab, SplitMode } from "@/types/ui-types";
 
 // ─── useSplitSizes ────────────────────────────────────────────────────────────
@@ -295,6 +296,7 @@ function PaneHeader({
           >
             {tab.type === "dashboard" ? "Dashboard" : tab.label}
           </span>
+          <HostIdBadge hostId={tab.host?.id} />
         </>
       ) : (
         <span className="opacity-40">

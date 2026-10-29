@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useEffect, useState, useRef } from "react";
 import { TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -186,9 +187,12 @@ function MetricsChartWidget({
       <div className="flex flex-col flex-1 p-2 gap-1 overflow-hidden">
         <div className="flex items-center justify-between gap-1 shrink-0">
           <div className="flex flex-col min-w-0">
-            <span className="text-[10px] font-semibold text-foreground truncate">
-              {hostName ?? `Host #${hostId}`}
-            </span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="text-[10px] font-semibold text-foreground truncate">
+                {hostName ?? `Host #${hostId}`}
+              </span>
+              <HostIdBadge hostId={hostId} />
+            </div>
             <span className="text-[9px] text-muted-foreground">
               {label} · {range}
             </span>

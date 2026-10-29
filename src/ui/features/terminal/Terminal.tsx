@@ -4182,6 +4182,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             isOpen={true}
             scenario={hostKeyVerification.scenario}
             {...hostKeyVerification.data}
+            hostId={hostConfig?.id}
             onAccept={() => {
               if (webSocketRef.current) {
                 webSocketRef.current.send(

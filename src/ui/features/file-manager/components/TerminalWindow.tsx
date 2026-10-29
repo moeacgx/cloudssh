@@ -1,4 +1,5 @@
 import React from "react";
+import { HostIdBadge } from "@/components/host-id-badge";
 import { DraggableWindow } from "./DraggableWindow.tsx";
 import {
   Terminal,
@@ -112,18 +113,21 @@ export function TerminalWindow({
         isMaximized={currentWindow.isMaximized}
         zIndex={currentWindow.zIndex}
         titleActions={
-          onPromoteToTab ? (
-            <button
-              className="size-6 flex items-center justify-center rounded-none hover:bg-accent-brand/10 hover:text-accent-brand text-muted-foreground transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                handlePromoteToTab();
-              }}
-              title={t("common.openInNewTab")}
-            >
-              <ExternalLink className="size-3.5" />
-            </button>
-          ) : null
+          <>
+            <HostIdBadge hostId={hostConfig.id} className="mr-2" />
+            {onPromoteToTab ? (
+              <button
+                className="size-6 flex items-center justify-center rounded-none hover:bg-accent-brand/10 hover:text-accent-brand text-muted-foreground transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePromoteToTab();
+                }}
+                title={t("common.openInNewTab")}
+              >
+                <ExternalLink className="size-3.5" />
+              </button>
+            ) : null}
+          </>
         }
       >
         <Terminal

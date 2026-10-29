@@ -1,5 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { formatHostLabel } from "@/lib/host-id";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import { PasswordInput } from "@/components/password-input";
@@ -737,14 +738,17 @@ export function HostEditorGeneralTab({
                         <React.Fragment key={`j${ji}`}>
                           <span className="text-muted-foreground">→</span>
                           <span className="px-2 py-0.5 bg-muted border border-border text-muted-foreground font-mono">
-                            {jh.name || jh.ip}
+                            {formatHostLabel(jh.name || jh.ip, jh.id)}
                           </span>
                         </React.Fragment>
                       ) : null;
                     })}
                   <span className="text-muted-foreground">→</span>
                   <span className="px-2 py-0.5 bg-accent-brand/10 border border-accent-brand/30 text-accent-brand font-mono">
-                    {form.ip || "target"}:{form.sshPort}
+                    {formatHostLabel(
+                      `${form.ip || "target"}:${form.sshPort}`,
+                      host?.id,
+                    )}
                   </span>
                 </div>
               ) : null}
@@ -819,7 +823,7 @@ export function HostEditorGeneralTab({
                       .filter((h) => (host ? h.id !== host.id : true))
                       .map((h) => (
                         <option key={h.id} value={h.id}>
-                          {h.name || h.ip}
+                          {formatHostLabel(h.name || h.ip, h.id)}
                         </option>
                       ))}
                   </select>

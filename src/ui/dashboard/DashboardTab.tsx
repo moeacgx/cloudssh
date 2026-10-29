@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/button";
@@ -354,10 +355,13 @@ function QuickActionsCard({
                   <div className="size-7 border border-border bg-muted flex items-center justify-center shrink-0 group-hover/btn:bg-accent-brand/20 group-hover/btn:border-accent-brand/40 transition-colors">
                     {renderConnectionIcon(host)}
                   </div>
-                  <div className="flex flex-col items-start text-left min-w-0">
-                    <span className="text-xs font-semibold truncate w-full">
-                      {host.name || host.ip}
-                    </span>
+                  <div className="flex flex-1 flex-col items-start text-left min-w-0">
+                    <div className="flex w-full min-w-0 items-center gap-1.5">
+                      <span className="text-xs font-semibold truncate">
+                        {host.name || host.ip}
+                      </span>
+                      <HostIdBadge hostId={host.id} />
+                    </div>
                     <span className="text-[10px] text-muted-foreground truncate w-full">
                       {getConnectionEndpoint(host)}
                     </span>
@@ -491,7 +495,10 @@ function HostStatusCard({
                 />
                 <div className="flex flex-col">
                   <div className="flex items-center gap-1">
-                    <span className="text-xs font-semibold">{host.name}</span>
+                    <span className="text-xs font-semibold truncate">
+                      {host.name}
+                    </span>
+                    <HostIdBadge hostId={host.id} />
                     <ExternalLink className="size-2.5 text-muted-foreground/0 group-hover/row:text-muted-foreground/60 transition-colors shrink-0" />
                   </div>
                   <span className="text-[10px] text-muted-foreground font-mono">
@@ -640,9 +647,12 @@ function RecentActivityCard({
                   className={`size-1.5 rounded-full shrink-0 ${getStatusClasses(host?.online ?? false, statusScheme, "dot", statusLoading)}`}
                 />
                 <div className="flex flex-col">
-                  <span className="text-xs font-semibold truncate max-w-24">
-                    {item.hostName}
-                  </span>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="text-xs font-semibold truncate max-w-24">
+                      {item.hostName}
+                    </span>
+                    <HostIdBadge hostId={item.hostId} />
+                  </div>
                   <div className="flex items-center gap-1 text-muted-foreground">
                     {typeIcon[item.type]}
                     <span className="text-[10px]">{typeLabel[item.type]}</span>

@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useEffect, useState } from "react";
 import {
   Activity,
@@ -111,9 +112,12 @@ function RecentActivityWidget({
           >
             <ActivityIcon type={item.type} />
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-[10px] font-medium text-foreground truncate">
-                {item.hostName}
-              </span>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="text-[10px] font-medium text-foreground truncate">
+                  {item.hostName}
+                </span>
+                <HostIdBadge hostId={item.hostId} />
+              </div>
               <span className="text-[9px] text-muted-foreground capitalize">
                 {item.type.replace("_", " ")}
               </span>

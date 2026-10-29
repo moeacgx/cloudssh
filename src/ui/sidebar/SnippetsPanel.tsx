@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useConfirmation } from "@/hooks/use-confirmation.ts";
 import {
@@ -309,6 +311,7 @@ function SnippetFormDialog({
                       <span className="text-xs font-medium truncate flex-1">
                         {host.name || host.ip}
                       </span>
+                      <HostIdBadge hostId={host.id} />
                       <span className="text-xs text-muted-foreground/60 shrink-0">
                         {host.ip}
                       </span>
@@ -940,6 +943,7 @@ function SnippetCard({
               >
                 <Server className="size-2.5" />
                 <span className="min-w-0 truncate">{host.name || host.ip}</span>
+                <HostIdBadge hostId={host.id} />
               </span>
             ))}
           </div>
@@ -1661,7 +1665,10 @@ export function SnippetsPanel({
     const results: ExecutionResult[] = await Promise.all(
       hostIds.map(async (hostId) => {
         const host = availableHosts.find((h) => h.id === hostId);
-        const hostLabel = host ? host.name || host.ip : String(hostId);
+        const hostLabel = formatHostLabel(
+          host ? host.name || host.ip : String(hostId),
+          host?.id ?? hostId,
+        );
         try {
           const result = await apiExecuteSnippet(snippet.id, hostId);
           return {

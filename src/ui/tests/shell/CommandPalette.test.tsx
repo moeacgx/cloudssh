@@ -40,6 +40,8 @@ describe("CommandPalette 滚动布局", () => {
     await waitFor(() =>
       expect(mainAxios.getRecentActivity).toHaveBeenCalledWith(5),
     );
+    expect(screen.getByText("#1")).toBeTruthy();
+    expect(screen.getByText("主机 1")).toBeTruthy();
     expect(
       screen.getByPlaceholderText("commandPalette.searchPlaceholder"),
     ).toBeTruthy();

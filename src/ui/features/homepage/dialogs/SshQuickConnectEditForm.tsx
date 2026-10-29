@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -44,7 +45,8 @@ export function SshQuickConnectEditForm({
                 onChange={() => toggleHost(h.id)}
                 className="accent-accent-brand"
               />
-              {h.name}
+              <span className="truncate">{h.name}</span>
+              <HostIdBadge hostId={h.id} />
             </label>
           ))}
         </div>

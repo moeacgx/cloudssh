@@ -1,3 +1,4 @@
+import { HostIdBadge } from "@/components/host-id-badge";
 import { useCallback, useState } from "react";
 import { Zap, Terminal, FolderOpen, Container } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -113,6 +114,7 @@ function SshQuickConnectWidget({
               <span className="text-[10px] font-medium text-foreground truncate flex-1">
                 {host.name}
               </span>
+              <HostIdBadge hostId={host.id} />
               {showStatus && (
                 <span
                   className="w-1.5 h-1.5 rounded-full shrink-0"

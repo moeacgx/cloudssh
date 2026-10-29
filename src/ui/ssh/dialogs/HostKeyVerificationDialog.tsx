@@ -3,6 +3,7 @@ import { Button } from "@/components/button.tsx";
 import { Shield, AlertTriangle, Copy, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyToClipboard } from "@/lib/clipboard";
+import { HostIdBadge } from "@/components/host-id-badge";
 
 interface HostKeyVerificationDialogProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface HostKeyVerificationDialogProps {
   ip: string;
   port: number;
   hostname?: string;
+  hostId?: number | string;
   fingerprint: string;
   oldFingerprint?: string;
   keyType: string;
@@ -26,6 +28,7 @@ export function HostKeyVerificationDialog({
   ip,
   port,
   hostname,
+  hostId,
   fingerprint,
   oldFingerprint,
   algorithm,
@@ -73,8 +76,11 @@ export function HostKeyVerificationDialog({
                 : t("hostKey.keyChangedWarning")}
             </h3>
           </div>
-          <p className="text-[10px] font-mono font-bold tracking-tight text-muted-foreground mt-1">
-            {hostname || ip}:{port}
+          <p className="flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold tracking-tight text-muted-foreground mt-1">
+            <span>
+              {hostname || ip}:{port}
+            </span>
+            <HostIdBadge hostId={hostId} />
           </p>
         </div>
 

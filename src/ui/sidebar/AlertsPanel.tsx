@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
 import {
   Bell,
   BellOff,
@@ -253,6 +254,7 @@ export function AlertsPanel() {
                     <span className="flex-1 truncate text-xs font-semibold">
                       {firing.hostName}
                     </span>
+                    <HostIdBadge hostId={firing.hostId} />
                     {!firing.acknowledged && (
                       <button
                         onClick={() => handleAck(firing.id)}

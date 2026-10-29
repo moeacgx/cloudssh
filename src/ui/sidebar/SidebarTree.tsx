@@ -7,6 +7,8 @@ import {
   type MouseEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Box,
@@ -523,6 +525,7 @@ export function HostItem({
             <span className="text-[13px] font-medium truncate text-foreground leading-none">
               {host.name}
             </span>
+            <HostIdBadge hostId={host.id} />
             {host.isShared && (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
@@ -646,7 +649,9 @@ export function HostItem({
                       try {
                         await wakeOnLan(host.id);
                         toast.success(
-                          t("hosts.wakeOnLanSuccess", { name: host.name }),
+                          t("hosts.wakeOnLanSuccess", {
+                            name: formatHostLabel(host.name, host.id),
+                          }),
                         );
                       } catch {
                         toast.error(t("hosts.wakeOnLanError"));
@@ -867,7 +872,9 @@ export function HostItem({
                       try {
                         await wakeOnLan(host.id);
                         toast.success(
-                          t("hosts.wakeOnLanSuccess", { name: host.name }),
+                          t("hosts.wakeOnLanSuccess", {
+                            name: formatHostLabel(host.name, host.id),
+                          }),
                         );
                       } catch {
                         toast.error(t("hosts.wakeOnLanError"));
@@ -1104,6 +1111,7 @@ export function HostItem({
           <span className="text-[13px] font-medium truncate text-foreground leading-none">
             {host.name}
           </span>
+          <HostIdBadge hostId={host.id} />
           {host.pin && (
             <Pin className="size-2.5 text-accent-brand/50 shrink-0" />
           )}
@@ -1238,7 +1246,9 @@ export function HostItem({
                   try {
                     await wakeOnLan(host.id);
                     toast.success(
-                      t("hosts.wakeOnLanSuccess", { name: host.name }),
+                      t("hosts.wakeOnLanSuccess", {
+                        name: formatHostLabel(host.name, host.id),
+                      }),
                     );
                   } catch {
                     toast.error(t("hosts.wakeOnLanError"));
@@ -1357,7 +1367,9 @@ export function HostItem({
                       try {
                         await wakeOnLan(host.id);
                         toast.success(
-                          t("hosts.wakeOnLanSuccess", { name: host.name }),
+                          t("hosts.wakeOnLanSuccess", {
+                            name: formatHostLabel(host.name, host.id),
+                          }),
                         );
                       } catch {
                         toast.error(t("hosts.wakeOnLanError"));
@@ -2388,7 +2400,7 @@ export function SidebarTree({
               ? "hosts.deleteHostConfirm"
               : "hosts.deleteHostsConfirm",
         {
-          name: hosts[0]?.name,
+          name: formatHostLabel(hosts[0]?.name ?? "", hosts[0]?.id),
           count: hosts.length,
           plural: hosts.length !== 1 ? "s" : "",
         },
@@ -2515,7 +2527,11 @@ export function SidebarTree({
       };
       await createSSHHost(duplicateHost, activeProject.id);
       window.dispatchEvent(new CustomEvent("termix:hosts-changed"));
-      toast.success(t("hosts.duplicatedHost", { name: host.name }));
+      toast.success(
+        t("hosts.duplicatedHost", {
+          name: formatHostLabel(host.name, host.id),
+        }),
+      );
     } catch {
       toast.error(t("hosts.failedToDuplicateHost"));
     }
@@ -2994,7 +3010,10 @@ export function SidebarTree({
                     ? "hosts.removeOrDeleteHostDescription"
                     : "hosts.removeOrDeleteHostsDescription",
                   {
-                    name: hostRemovalDialog.hosts[0]?.name,
+                    name: formatHostLabel(
+                      hostRemovalDialog.hosts[0]?.name ?? "",
+                      hostRemovalDialog.hosts[0]?.id,
+                    ),
                     count: hostRemovalDialog.hosts.length,
                     projectCount:
                       hostRemovalDialog.hosts[0]?.linkedProjectCount ?? 1,

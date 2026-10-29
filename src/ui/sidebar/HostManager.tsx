@@ -7,6 +7,8 @@ import React, {
   type MutableRefObject,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { HostIdBadge } from "@/components/host-id-badge";
+import { formatHostLabel } from "@/lib/host-id";
 
 import { Button } from "@/components/button";
 import { ArrowLeft, Search, X } from "lucide-react";
@@ -392,11 +394,17 @@ export function HostManager({
               {isHost ? t("hosts.backToHosts") : t("hosts.backToCredentials")}
             </span>
             {isHost && editingHost !== "new" && (
-              <span
-                className="ml-auto font-semibold text-foreground truncate max-w-[200px]"
-                title={(editingHost as Host).name}
-              >
-                {(editingHost as Host).name}
+              <span className="ml-auto flex min-w-0 items-center gap-1.5">
+                <span
+                  className="font-semibold text-foreground truncate max-w-[200px]"
+                  title={formatHostLabel(
+                    (editingHost as Host).name,
+                    (editingHost as Host).id,
+                  )}
+                >
+                  {(editingHost as Host).name}
+                </span>
+                <HostIdBadge hostId={(editingHost as Host).id} />
               </span>
             )}
           </button>
@@ -650,7 +658,7 @@ export function HostManager({
                   )
                   .map((h) => (
                     <option key={h.id} value={h.id}>
-                      {h.name || h.ip}
+                      {formatHostLabel(h.name || h.ip, h.id)}
                     </option>
                   ))}
               </select>

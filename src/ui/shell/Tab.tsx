@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getHostPassword } from "@/main-axios.ts";
 import { cn } from "@/lib/utils";
 import { copyToClipboard } from "@/lib/clipboard";
+import { HostIdBadge } from "@/components/host-id-badge";
 import {
   Home,
   SeparatorVertical,
@@ -254,6 +255,7 @@ export function Tab({
           )}
           <span className="truncate text-sm flex-1 min-w-0">{base}</span>
           {suffix && <span className="text-sm flex-shrink-0">{suffix}</span>}
+          <HostIdBadge hostId={hostConfig?.id} />
         </div>
 
         {hasPassword && (

@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
+import { HostIdBadge } from "@/components/host-id-badge";
 import { isElectron } from "@/lib/electron";
 import type { Tab, TabType, SplitMode } from "@/types/ui-types";
 import { SPLIT_MODES, PANE_COUNTS } from "@/lib/theme";
@@ -353,9 +354,12 @@ export function TabBar({
                   />
                 ) : (
                   tab.type !== "dashboard" && (
-                    <span className="max-w-[4.5rem] truncate sm:max-w-32 md:max-w-48">
-                      {tab.label}
-                    </span>
+                    <>
+                      <span className="max-w-[4.5rem] truncate sm:max-w-32 md:max-w-48">
+                        {tab.label}
+                      </span>
+                      <HostIdBadge hostId={tab.host?.id} />
+                    </>
                   )
                 )}
                 {tab.type === "terminal" &&
@@ -488,6 +492,7 @@ export function TabBar({
                 >
                   {tabIcon(tab.type)}
                   {tab.type !== "dashboard" && tab.label}
+                  <HostIdBadge hostId={tab.host?.id} />
                 </div>
               );
             })()}
@@ -525,6 +530,7 @@ export function TabBar({
                         ? t("nav.dashboard")
                         : tab.label}
                     </span>
+                    <HostIdBadge hostId={tab.host?.id} />
                     {tab.type === "terminal" && tab.sessionPinned && (
                       <Pin className="size-3 shrink-0 text-accent-brand" />
                     )}
