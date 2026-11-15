@@ -45,6 +45,7 @@ vi.mock("@/lib/clipboard", () => ({
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
+    i18n: { language: "en" },
     t: (key: string, options?: { username?: string }) =>
       options?.username ? `${key}:${options.username}` : key,
   }),
