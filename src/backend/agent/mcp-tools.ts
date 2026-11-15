@@ -2,11 +2,12 @@ import { z } from "zod";
 import type { AgentRouterDependencies } from "./routes.js";
 import type { AgentPrincipal, AgentScope } from "./types.js";
 import { AgentApiError } from "./errors.js";
+import { McpFileTransfers, MCP_FILE_LIMITS } from "./mcp-files.js";
 
 export type McpServices = Pick<
   AgentRouterDependencies,
   "servers" | "sessions" | "jobs" | "files"
->;
+> & { transfers?: McpFileTransfers };
 const id = z.string().trim().min(1).max(128);
 const path = z.string().min(1).max(4096);
 const write = {
@@ -34,6 +35,10 @@ export function createMcpTools(
       );
     return services.files;
   };
+  const transfers = () => {
+    const fileService = files();
+    return (services.transfers ??= new McpFileTransfers(fileService));
+  };
   function tool<S extends z.ZodRawShape>(
     name: string,
     description: string,
@@ -44,6 +49,7 @@ export function createMcpTools(
       observer: McpOperationObserver,
     ) => Promise<unknown>,
     mutating = false,
+    commitObserved = false,
   ) {
     const schema = z.object(shape).strict();
     return {
@@ -51,6 +57,7 @@ export function createMcpTools(
       description,
       scope,
       mutating,
+      commitObserved,
       schema,
       resolveProjectId: async (args: unknown): Promise<string | null> => {
         const target = schema.parse(args) as Record<string, unknown>;
@@ -272,6 +279,48 @@ export function createMcpTools(
       "files:read",
       file,
       async (a) => files().read(principal, a.serverId, a.path),
+    ),
+    tool(
+      "cloudssh_files_upload",
+      "Upload binary chunks (max 256 KiB decoded, 64 MiB total). Use one request_id/size/lowercase SHA-256 for the whole file. Send contiguous offset/dataBase64 chunks; retry identical chunks on failure. Set finalize=true only when all bytes are staged. Staging expires after 10 idle minutes or restart; restart from offset 0 with the SAME request_id. Remote upload uses existing idempotency and replaces the destination file.",
+      "files:write",
+      {
+        ...file,
+        ...write,
+        size: z.number().int().min(0).max(MCP_FILE_LIMITS.fileBytes),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        offset: z.number().int().min(0).max(MCP_FILE_LIMITS.fileBytes),
+        dataBase64: z
+          .string()
+          .max(Math.ceil(MCP_FILE_LIMITS.chunkBytes / 3) * 4),
+        finalize: z.boolean().default(false),
+      },
+      async (a, observer) =>
+        transfers().upload(principal, a, observer.onCommitted),
+      true,
+      true,
+    ),
+    tool(
+      "cloudssh_files_download",
+      "Download binary file (max 64 MiB) as Base64 chunks. First call offset=0 without transferId snapshots the file; reuse returned transferId and nextOffset until eof. Max chunk 256 KiB; snapshot expires after 10 idle minutes or restart. Decode and assemble CLIENT-side; verify total size/SHA-256 before publishing, use exclusive creation (no overwrite) unless explicitly requested. No client-local path is accepted.",
+      "files:read",
+      {
+        ...file,
+        transferId: id.optional(),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .max(MCP_FILE_LIMITS.fileBytes)
+          .default(0),
+        length: z
+          .number()
+          .int()
+          .min(1)
+          .max(MCP_FILE_LIMITS.chunkBytes)
+          .default(MCP_FILE_LIMITS.chunkBytes),
+      },
+      async (a) => transfers().download(principal, a),
     ),
     tool(
       "cloudssh_files_mkdir",
