@@ -1,7 +1,7 @@
 {
   "name": "cloudssh-termix",
   "private": true,
-  "version": "2.6.0-cloudssh.58",
+  "version": "2.6.0-cloudssh.59",
   "description": "Private team SSH workspace with persistent sessions and secure agent access.",
   "author": "Karmaa",
   "license": "Apache-2.0",
@@ -53,6 +53,7 @@
     "build:mac-dev": "npm run build && npm run electron:rebuild && npm run electron:patch-builder && electron-builder --mac dir --publish=never"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@tanstack/react-virtual": "^3.14.6",
@@ -82,7 +83,8 @@
     "speakeasy": "^2.0.0",
     "ssh2": "^1.17.0",
     "undici": "^8.10.0",
-    "ws": "^8.21.1"
+    "ws": "^8.21.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",

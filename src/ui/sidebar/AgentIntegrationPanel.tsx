@@ -59,6 +59,7 @@ import {
   type MfaStepUpMethod,
 } from "@/components/MfaStepUpDialog";
 import { getMfaStepUpMethods } from "@/api/mfa-api";
+import { McpManagementButton } from "@/sidebar/McpPanel";
 
 const EMPTY_ACCESS: AgentAdminAccess = { projects: [], devices: [] };
 const AVAILABLE_SCOPES: AgentScope[] = [
@@ -662,6 +663,7 @@ export function AgentIntegrationPanel({
         </div>
       </div>
 
+      <McpManagementButton />
       <section className="border-y border-border/70 py-3">
         <div className="mb-2 flex items-center gap-2">
           <ShieldCheck className="size-4 text-emerald-500" />

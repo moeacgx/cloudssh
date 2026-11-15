@@ -10,6 +10,7 @@ const SCRYPT_KEY_LENGTH = 32;
 export interface AgentAuthenticatedRequest extends Request {
   agentPrincipal?: AgentPrincipal;
   agentTokenId?: string;
+  agentTokenOwnerUserId?: string | null;
   agentDeviceId?: string;
   rawBody?: Buffer;
   agentOperationDispatched?: boolean;
@@ -117,6 +118,9 @@ export class SqliteAgentCredentialStore implements AgentCredentialStore {
         )
         .map((project) => project.id);
     },
+    private readonly onUsageWrite:
+      | (() => void | Promise<void>)
+      | undefined = onWrite,
   ) {}
 
   async findActiveByPrefix(prefix: string): Promise<AgentTokenRecord[]> {
@@ -255,6 +259,7 @@ export class SqliteAgentCredentialStore implements AgentCredentialStore {
         }
         return {
           id: row.id,
+          createdByUserId: row.createdByUserId,
           principalId: `token:${row.id}`,
           serviceAccountId: row.serviceAccountId,
           serviceAccountIds: [
@@ -288,10 +293,15 @@ export class SqliteAgentCredentialStore implements AgentCredentialStore {
   }
 
   async touch(tokenId: string, timestamp: string): Promise<void> {
-    this.sqlite
-      .prepare("UPDATE agent_access_tokens SET last_used_at = ? WHERE id = ?")
-      .run(timestamp, tokenId);
-    await this.onWrite?.();
+    // 使用时间是可合并的遥测；权限写入仍使用独立的强制持久化回调。
+    const cutoff = new Date(Date.parse(timestamp) - 60_000).toISOString();
+    const result = this.sqlite
+      .prepare(
+        `UPDATE agent_access_tokens SET last_used_at = ? WHERE id = ?
+        AND (last_used_at IS NULL OR last_used_at <= ?)`,
+      )
+      .run(timestamp, tokenId, cutoff);
+    if (result.changes > 0) await this.onUsageWrite?.();
   }
 }
 
@@ -343,6 +353,7 @@ export function createAgentAuthMiddleware(store: AgentCredentialStore) {
 
       const authReq = req as AgentAuthenticatedRequest;
       authReq.agentTokenId = matched.id;
+      authReq.agentTokenOwnerUserId = matched.createdByUserId;
       authReq.agentPrincipal = {
         principalId: matched.principalId,
         serviceAccountId: matched.serviceAccountId,

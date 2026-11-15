@@ -55,6 +55,84 @@ function auditEvent(id: string, occurredAt = new Date().toISOString()) {
 }
 
 describe("Agent 独立安全存储", () => {
+  it("MCP 调用意图和下发状态独立落盘，重启及删除密钥后仍可查询", async () => {
+    const source = new Database(":memory:");
+    source.exec(`CREATE TABLE agent_access_tokens (id TEXT, created_by_user_id TEXT, name TEXT);
+      INSERT INTO agent_access_tokens VALUES ('key', 'owner', 'Original');`);
+    const file = securityFile();
+    const first = new AgentSecurityStore(file);
+    const history = first.createMcpHistory(source);
+    const entry = {
+      id: "invocation",
+      tokenId: "key",
+      tool: "cloudssh_jobs_execute",
+      projectId: "project",
+      success: false,
+      durationMs: 0,
+      code: "PENDING",
+      requestId: "retry-key",
+    };
+    await history.record({ ...entry, stage: "intent" });
+    const observer = new AgentSecurityStore(file);
+    const filters = { page: 1, tool: "", tokenId: "", status: "" };
+    expect(
+      observer.createMcpHistory(source).list("owner", false, filters).records,
+    ).toEqual([
+      expect.objectContaining({
+        stage: "intent",
+        operationDispatched: 0,
+        requestId: "retry-key",
+      }),
+    ]);
+    observer.close();
+    await history.record({
+      ...entry,
+      stage: "dispatched",
+      operationDispatched: true,
+      code: "OUTCOME_UNKNOWN",
+    });
+    first.close();
+    source.exec("DELETE FROM agent_access_tokens");
+    const reopened = new AgentSecurityStore(file);
+    expect(
+      reopened.createMcpHistory(source).list("owner", false, filters).records,
+    ).toEqual([
+      expect.objectContaining({
+        stage: "dispatched",
+        code: "OUTCOME_UNKNOWN",
+        tokenName: "Original",
+        operationDispatched: 1,
+      }),
+    ]);
+    expect(
+      reopened.createMcpHistory(source).list("other", false, filters).total,
+    ).toBe(0);
+    reopened.close();
+    source.close();
+  });
+  it("将旧 MCP 历史迁入安全库且重启不会重复导入或覆盖完成状态", async () => {
+    const source = new Database(":memory:");
+    source.exec(`CREATE TABLE agent_access_tokens (id TEXT, created_by_user_id TEXT, name TEXT);
+      INSERT INTO agent_access_tokens VALUES ('key', 'owner', 'Original');
+      CREATE TABLE mcp_invocations (id TEXT PRIMARY KEY, token_id TEXT, tool TEXT,
+        project_id TEXT, success INTEGER, duration_ms INTEGER, code TEXT, created_at TEXT);`);
+    source
+      .prepare(
+        "INSERT INTO mcp_invocations VALUES ('legacy', 'key', 'cloudssh_context', NULL, 1, 1, NULL, ?)",
+      )
+      .run(new Date().toISOString());
+    const file = securityFile();
+    const store = new AgentSecurityStore(file);
+    const filters = { page: 1, tool: "", tokenId: "", status: "" };
+    expect(
+      store.createMcpHistory(source).list("owner", false, filters).total,
+    ).toBe(1);
+    expect(
+      store.createMcpHistory(source).list("owner", false, filters).total,
+    ).toBe(1);
+    store.close();
+    source.close();
+  });
   it("进程重启后仍拒绝已经消费的 nonce", async () => {
     const file = securityFile();
     const expiresAt = new Date(Date.now() + 60_000).toISOString();

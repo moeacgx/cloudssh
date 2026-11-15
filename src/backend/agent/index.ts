@@ -1,6 +1,13 @@
 import http from "http";
 import path from "path";
 import { AgentSessionBroker } from "./broker.js";
+import {
+  createAgentAuthMiddleware,
+  SqliteAgentCredentialStore,
+} from "./auth.js";
+import { createMcpRouter } from "./mcp.js";
+import { createMcpAdminRouter } from "./mcp-admin.js";
+import { defaultAgentTokenAdminDependencies } from "./token-admin.js";
 import { UnavailableJobDriver, UnavailableSessionDriver } from "./drivers.js";
 import { createPlatformSshDriver } from "./ssh-driver.js";
 import { AgentJobManager } from "./jobs.js";
@@ -139,6 +146,31 @@ const app = createAgentApp({
   audit,
 });
 app.use(cookieParser());
+const mcpServices = { servers, sessions, jobs, files: fileService };
+const mcpHistory = security.createMcpHistory(sqlite);
+app.use(
+  "/agent/mcp",
+  createMcpRouter(
+    mcpServices,
+    createAgentAuthMiddleware(
+      new SqliteAgentCredentialStore(
+        sqlite,
+        forceDeviceSecuritySave,
+        undefined,
+        triggerSave,
+      ),
+    ),
+    (entry) => mcpHistory.record(entry),
+  ),
+);
+app.use(
+  "/agent/admin/v1/mcp",
+  createMcpAdminRouter(
+    defaultAgentTokenAdminDependencies(sqlite, forceDeviceSecuritySave),
+    mcpHistory,
+    mcpServices,
+  ),
+);
 app.use(
   "/agent/admin/v1",
   createAgentSessionAdminRouter(defaultAgentSessionAdminDependencies(sqlite)),

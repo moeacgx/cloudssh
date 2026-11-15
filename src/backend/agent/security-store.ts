@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import Database from "better-sqlite3";
 import type { AgentDurableAuditEvent } from "./audit.js";
+import { McpHistory } from "./mcp-history.js";
 import type {
   AgentAuthFailureAuditStore,
   AgentAuthFailureEvent,
@@ -118,6 +119,11 @@ export class AgentSecurityStore
           .run(deviceId, nonce, expiresAt).changes > 0
       );
     })();
+  }
+
+  createMcpHistory(source: Database.Database): McpHistory {
+    // 与设备审计共用 WAL + synchronous=FULL 安全库，提交后才允许执行副作用。
+    return new McpHistory(source, undefined, this.sqlite);
   }
 
   importLegacyNonces(
