@@ -365,6 +365,15 @@ export class AgentSessionBroker {
     return publicSession(session);
   }
 
+  async resolveAuthorizedAuditContext(
+    principal: AgentPrincipal,
+    sessionId: string,
+  ) {
+    // 复用目标授权，不引入 sessions:read 要求，也不返回终端内容。
+    const session = await this.requireSession(principal, sessionId);
+    return { projectId: session.projectId };
+  }
+
   async subscribe(
     principal: AgentPrincipal,
     sessionId: string,

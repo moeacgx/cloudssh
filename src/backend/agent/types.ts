@@ -40,6 +40,7 @@ export interface AgentPrincipal {
 
 export interface AgentTokenRecord extends AgentPrincipal {
   id: string;
+  createdByUserId?: string | null;
   tokenPrefix: string;
   tokenSalt: string;
   tokenHash: string;

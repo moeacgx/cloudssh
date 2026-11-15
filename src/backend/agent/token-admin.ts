@@ -69,9 +69,6 @@ export class AgentTokenAdminRepository {
     manageableProjectIds: string[];
     isInstanceAdmin: boolean;
   }) {
-    const projectFilter = input.manageableProjectIds.length
-      ? input.manageableProjectIds.map(() => "?").join(",")
-      : "NULL";
     const tokens = this.sqlite
       .prepare(
         `SELECT token.id, token.name, token.token_prefix AS tokenPrefix,
@@ -83,16 +80,11 @@ export class AgentTokenAdminRepository {
                 GROUP_CONCAT(DISTINCT grant_row.project_id) AS projectIds
            FROM agent_access_tokens token
            LEFT JOIN agent_token_projects grant_row ON grant_row.token_id = token.id
-          WHERE (? = 1 OR token.created_by_user_id = ?
-                 OR grant_row.project_id IN (${projectFilter}))
+          WHERE (? = 1 OR token.created_by_user_id = ?)
           GROUP BY token.id
           ORDER BY token.created_at DESC`,
       )
-      .all(
-        input.isInstanceAdmin ? 1 : 0,
-        input.userId,
-        ...input.manageableProjectIds,
-      ) as Array<
+      .all(input.isInstanceAdmin ? 1 : 0, input.userId) as Array<
       Record<string, unknown> & {
         scopes: string;
         accessMode: "all" | "selected";
@@ -206,7 +198,6 @@ export class AgentTokenAdminRepository {
     manageableProjectIds: string[];
     isInstanceAdmin: boolean;
   }): Promise<boolean> {
-    const manageable = new Set(input.manageableProjectIds);
     const token = this.sqlite
       .prepare(
         `SELECT token.created_by_user_id AS createdByUserId,
@@ -221,9 +212,7 @@ export class AgentTokenAdminRepository {
       | undefined;
     if (!token) return false;
     const allowed =
-      input.isInstanceAdmin ||
-      token.createdByUserId === input.userId ||
-      (token.projectIds?.split(",").some((id) => manageable.has(id)) ?? false);
+      input.isInstanceAdmin || token.createdByUserId === input.userId;
     if (!allowed) return false;
 
     const result = this.sqlite

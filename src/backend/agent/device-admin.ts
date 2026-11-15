@@ -883,8 +883,8 @@ async function deviceManagerContext(
   return { auth, projects, isInstanceAdmin };
 }
 
-function requireRecentMfa(
-  dependencies: AgentDeviceAdminDependencies,
+export function requireRecentMfa(
+  dependencies: Pick<AgentDeviceAdminDependencies, "sqlite">,
   req: express.Request,
   res: express.Response,
 ): boolean {
