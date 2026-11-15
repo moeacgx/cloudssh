@@ -1,4 +1,9 @@
 import type { Server } from "node:http";
+import { createHash, randomBytes } from "node:crypto";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { AgentFileService } from "./files.js";
+import { McpFileTransfers, MCP_FILE_LIMITS } from "./mcp-files.js";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -37,12 +42,14 @@ const services = {
 } as unknown as McpServices;
 let server: Server | undefined;
 let client: Client | undefined;
+const transferManagers: McpFileTransfers[] = [];
 afterEach(async () => {
   await client?.close();
   client = undefined;
   if (server)
     await new Promise<void>((resolve) => server!.close(() => resolve()));
   server = undefined;
+  for (const manager of transferManagers.splice(0)) await manager.close();
   vi.clearAllMocks();
   createJob.mockReset().mockResolvedValue({
     id: "job-1",
@@ -70,7 +77,7 @@ async function start(
   ]);
   const audit: McpInvocation[] = [];
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "1mb" }));
   app.use(
     "/agent/mcp",
     createMcpRouter(
@@ -99,6 +106,182 @@ async function start(
 }
 
 describe("CloudSSH HTTP MCP", () => {
+  it("rejects unavailable file service before using an existing transfer manager", async () => {
+    const upload = vi.fn().mockResolvedValue({ complete: false });
+    const download = vi.fn().mockResolvedValue({ eof: true });
+    const { client, audit } = await start(
+      undefined,
+      { ...principal, scopes: ["files:read", "files:write"] },
+      {
+        ...services,
+        files: undefined,
+        transfers: { upload, download } as unknown as McpFileTransfers,
+      },
+    );
+    const args = {
+      serverId: "server-1",
+      path: "/tmp/file",
+      request_id: "unavailable",
+      size: 0,
+      sha256: createHash("sha256").digest("hex"),
+      offset: 0,
+      dataBase64: "",
+    };
+    for (const finalize of [false, true]) {
+      const result = await client.callTool({
+        name: "cloudssh_files_upload",
+        arguments: { ...args, finalize },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).toContain("FILE_SERVICE_UNAVAILABLE");
+    }
+    const result = await client.callTool({
+      name: "cloudssh_files_download",
+      arguments: { serverId: args.serverId, path: args.path },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain("FILE_SERVICE_UNAVAILABLE");
+    expect(upload).not.toHaveBeenCalled();
+    expect(download).not.toHaveBeenCalled();
+    expect(
+      audit
+        .filter((entry) => entry.stage === "completed")
+        .every(
+          (entry) =>
+            !entry.operationCommitted &&
+            entry.code === "FILE_SERVICE_UNAVAILABLE",
+        ),
+    ).toBe(true);
+  });
+  it("roundtrips maximum-size binary chunks through real SDK requests without leaking content into audit", async () => {
+    const bytes = randomBytes(MCP_FILE_LIMITS.chunkBytes + 11);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    let stored = Buffer.alloc(0);
+    const upload = vi.fn<AgentFileService["upload"]>(
+      async (_p, serverId, path, source, _id, _signal, committed) => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of Buffer.isBuffer(source)
+          ? Readable.from([source])
+          : source.openStream())
+          chunks.push(Buffer.from(chunk));
+        stored = Buffer.concat(chunks);
+        committed?.();
+        return { serverId, path, size: stored.length };
+      },
+    );
+    const download: AgentFileService["download"] = async (
+      _p,
+      serverId,
+      path,
+      open,
+    ) => {
+      const info = { serverId, path, size: stored.length };
+      await pipeline(Readable.from([stored]), open(info));
+      return info;
+    };
+    const files = { upload, download } as unknown as AgentFileService;
+    const transfers = new McpFileTransfers(files);
+    transferManagers.push(transfers);
+    const { client, audit } = await start(
+      undefined,
+      { ...principal, scopes: ["files:read", "files:write"] },
+      { ...services, files, transfers },
+    );
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const response = await client.callTool({ name, arguments: args });
+      expect(response.isError).not.toBe(true);
+      return JSON.parse((response.content as { text: string }[])[0].text);
+    };
+    const target = { serverId: "server-1", path: "/private/binary.dat" };
+    const common = {
+      ...target,
+      request_id: "binary-http",
+      size: bytes.length,
+      sha256,
+    };
+    const first = await call("cloudssh_files_upload", {
+      ...common,
+      offset: 0,
+      dataBase64: bytes
+        .subarray(0, MCP_FILE_LIMITS.chunkBytes)
+        .toString("base64"),
+    });
+    expect(first.nextOffset).toBe(MCP_FILE_LIMITS.chunkBytes);
+    expect(audit.at(-1)).toMatchObject({
+      success: true,
+      operationCommitted: false,
+    });
+    const lastArgs = {
+      ...common,
+      offset: first.nextOffset,
+      dataBase64: bytes.subarray(first.nextOffset).toString("base64"),
+      finalize: true,
+    };
+    expect(await call("cloudssh_files_upload", lastArgs)).toMatchObject({
+      complete: true,
+    });
+    await call("cloudssh_files_upload", lastArgs);
+    expect(upload).toHaveBeenCalledTimes(1);
+    const firstRead = await call("cloudssh_files_download", target);
+    const lastRead = await call("cloudssh_files_download", {
+      ...target,
+      transferId: firstRead.transferId,
+      offset: firstRead.nextOffset,
+    });
+    expect(lastRead).toMatchObject({ eof: true, sha256, size: bytes.length });
+    expect(
+      Buffer.concat([
+        Buffer.from(firstRead.dataBase64, "base64"),
+        Buffer.from(lastRead.dataBase64, "base64"),
+      ]),
+    ).toEqual(bytes);
+    const history = JSON.stringify(audit);
+    expect(history).not.toContain(target.path);
+    expect(history).not.toContain(sha256);
+    expect(history).not.toContain(lastArgs.dataBase64);
+    expect(
+      audit.some(
+        (entry) =>
+          entry.tool === "cloudssh_files_upload" && entry.operationCommitted,
+      ),
+    ).toBe(true);
+    expect(audit.every((entry) => entry.projectId === "project-1")).toBe(true);
+  });
+  it("does not stage or dispatch an upload when audit is unavailable", async () => {
+    const upload = vi.fn();
+    const { client } = await start(
+      async () => {
+        throw new Error("audit unavailable");
+      },
+      { ...principal, scopes: ["files:write"] },
+      { ...services, transfers: { upload } as unknown as McpFileTransfers },
+    );
+    const result = await client.callTool({
+      name: "cloudssh_files_upload",
+      arguments: {
+        serverId: "server-1",
+        path: "/tmp/file",
+        request_id: "fail-closed",
+        size: 0,
+        sha256: createHash("sha256").digest("hex"),
+        offset: 0,
+        dataBase64: "",
+        finalize: true,
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain("AUDIT_UNAVAILABLE");
+    expect(upload).not.toHaveBeenCalled();
+  });
+  it("exposes binary transfer tools only for their authorized scopes", async () => {
+    const { client } = await start(undefined, {
+      ...principal,
+      scopes: ["files:read", "files:write"],
+    });
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    expect(names).toContain("cloudssh_files_upload");
+    expect(names).toContain("cloudssh_files_download");
+  });
   it("审计不可用时不下发操作", async () => {
     const { client } = await start(async () => {
       throw new Error("disk full");
