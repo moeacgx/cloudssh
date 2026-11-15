@@ -17,6 +17,15 @@ beforeEach(() => {
 });
 
 describe("MFA 二次验证 API", () => {
+  it("识别 Axios 原始响应中的验证要求", () => {
+    expect(
+      getMfaStepUpMethods({
+        code: "ERR_BAD_REQUEST",
+        response: { data: { code: "MFA_STEP_UP_REQUIRED", methods: ["totp"] } },
+      }),
+    ).toEqual(["totp"]);
+    expect(getMfaStepUpMethods(null)).toBeNull();
+  });
   it("从结构化错误中提取服务端允许的验证方式", () => {
     const error = Object.assign(new Error("需要二次验证"), {
       code: "MFA_STEP_UP_REQUIRED",

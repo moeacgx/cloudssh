@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Copy, RefreshCw, KeyRound, Plug } from "lucide-react";
 import { toast } from "sonner";
@@ -39,6 +39,14 @@ const scopes: AgentScope[] = [
   "files:write",
 ];
 
+type PendingStepUp = {
+  id: number;
+  methods: MfaStepUpMethod[];
+  retry: () => Promise<void>;
+  target: "create" | "revoke";
+  verifying: boolean;
+};
+
 export function McpPanel() {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
@@ -68,19 +76,58 @@ export function McpPanel() {
   const [concurrency, setConcurrency] = useState(1);
   const [secret, setSecret] = useState("");
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{
-    methods: MfaStepUpMethod[];
-    retry: () => Promise<void>;
-  } | null>(null);
-  const mutate = async (action: () => Promise<void>, retry = true) => {
+  const [stepUp, setStepUp] = useState<PendingStepUp | null>(null);
+  const pendingStepUp = useRef<PendingStepUp | null>(null);
+  const stepUpGeneration = useRef(0);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      pendingStepUp.current = null;
+    };
+  }, []);
+  const cancelStepUp = () => {
+    pendingStepUp.current = null;
+    setStepUp(null);
+  };
+  const startVerification = (id: number) => {
+    const pending = pendingStepUp.current;
+    if (!mounted.current || pending?.id !== id || pending.verifying)
+      return false;
+    pendingStepUp.current = { ...pending, verifying: true };
+    setStepUp(pendingStepUp.current);
+    return true;
+  };
+  const endVerification = (id: number) => {
+    const pending = pendingStepUp.current;
+    if (!mounted.current || pending?.id !== id) return;
+    pendingStepUp.current = { ...pending, verifying: false };
+    setStepUp(pendingStepUp.current);
+  };
+  const mutate = async (
+    action: () => Promise<void>,
+    retry = true,
+    target: "create" | "revoke" = "create",
+  ) => {
     setBusy(true);
     setError("");
     try {
       await action();
     } catch (error) {
+      if (!mounted.current) return;
       const methods = retry ? getMfaStepUpMethods(error) : null;
-      if (methods) setStepUp({ methods, retry: () => mutate(action, false) });
-      else {
+      if (methods) {
+        const pending: PendingStepUp = {
+          id: ++stepUpGeneration.current,
+          methods,
+          target,
+          verifying: false,
+          retry: () => mutate(action, false, target),
+        };
+        pendingStepUp.current = pending;
+        setStepUp(pending);
+      } else {
         const response = (error as { response?: { data?: { error?: string } } })
           .response?.data;
         setError(
@@ -89,8 +136,16 @@ export function McpPanel() {
         );
       }
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
+  };
+  const finishStepUp = async (id: number) => {
+    const pending = pendingStepUp.current;
+    if (!mounted.current || pending?.id !== id || !pending.verifying) return;
+    // 在任何异步操作前同步消费，旧组件回调和重复响应都不能再次重试。
+    pendingStepUp.current = null;
+    setStepUp(null);
+    await pending.retry();
   };
   const endpoint = mcpEndpoint();
   const config = mcpConfiguration(endpoint, client);
@@ -356,18 +411,20 @@ export function McpPanel() {
             className="space-y-4 rounded-xl border border-border p-5"
             onSubmit={(event) => {
               event.preventDefault();
+              if (busy || stepUp) return;
+              const input = {
+                name,
+                projectIds: projects,
+                scopes: permissions,
+                expiresAt: expiry
+                  ? new Date(
+                      Date.now() + Number(expiry) * 86400000,
+                    ).toISOString()
+                  : null,
+                maxConcurrentSessions: concurrency,
+              };
               void mutate(async () => {
-                const result = await createMcpKey({
-                  name,
-                  projectIds: projects,
-                  scopes: permissions,
-                  expiresAt: expiry
-                    ? new Date(
-                        Date.now() + Number(expiry) * 86400000,
-                      ).toISOString()
-                    : null,
-                  maxConcurrentSessions: concurrency,
-                });
+                const result = await createMcpKey(input);
                 setSecret(result.token);
                 setName("");
                 await refresh();
@@ -378,99 +435,127 @@ export function McpPanel() {
               <KeyRound className="size-4" />
               {text("创建调用密钥", "Create access key")}
             </h3>
-            <label className="block space-y-2 text-sm">
-              <span>{text("名称", "Name")}</span>
-              <Input
-                required
-                maxLength={128}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-            <fieldset>
-              <legend className="mb-2 text-sm">
-                {text("授权项目", "Authorized projects")}
-              </legend>
-              <div className="flex flex-wrap gap-4">
-                {access.projects.map((p) => (
-                  <label key={p.id} className="flex gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={projects.includes(p.id)}
-                      onChange={(e) =>
-                        setProjects((old) =>
-                          e.target.checked
-                            ? [...old, p.id]
-                            : old.filter((id) => id !== p.id),
-                        )
-                      }
-                    />
-                    {p.name}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend className="mb-2 text-sm">
-                {text("操作权限", "Permissions")}
-              </legend>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {scopes.map((scope) => (
-                  <label key={scope} className="flex gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={permissions.includes(scope)}
-                      onChange={(e) =>
-                        setPermissions((old) =>
-                          e.target.checked
-                            ? [...old, scope]
-                            : old.filter((s) => s !== scope),
-                        )
-                      }
-                    />
-                    {scope}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <div className="flex flex-wrap gap-4">
-              <label className="space-y-2 text-sm">
-                <span className="block">{text("有效期", "Expiry")}</span>
-                <select
-                  className={selectClass}
-                  value={expiry}
-                  onChange={(e) => setExpiry(e.target.value)}
-                >
-                  {["7", "30", "90", ""].map((v) => (
-                    <option key={v} value={v}>
-                      {v
-                        ? `${v} ${text("天", "days")}`
-                        : text("永不过期", "Never")}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="block">
-                  {text("并发会话上限", "Concurrent sessions")}
-                </span>
+            <fieldset disabled={busy || Boolean(stepUp)} className="space-y-4">
+              <label className="block space-y-2 text-sm">
+                <span>{text("名称", "Name")}</span>
                 <Input
-                  type="number"
-                  min={1}
-                  max={100}
                   required
-                  value={concurrency}
-                  onChange={(e) => setConcurrency(Number(e.target.value))}
+                  maxLength={128}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                 />
               </label>
-            </div>
-            <Button
-              disabled={
-                busy || !name.trim() || !projects.length || !permissions.length
-              }
-            >
-              {text("创建密钥", "Create key")}
-            </Button>
+              <fieldset>
+                <legend className="mb-2 text-sm">
+                  {text("授权项目", "Authorized projects")}
+                </legend>
+                <div className="flex flex-wrap gap-4">
+                  {access.projects.map((p) => (
+                    <label key={p.id} className="flex gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={projects.includes(p.id)}
+                        onChange={(e) =>
+                          setProjects((old) =>
+                            e.target.checked
+                              ? [...old, p.id]
+                              : old.filter((id) => id !== p.id),
+                          )
+                        }
+                      />
+                      {p.name}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend className="mb-2 text-sm">
+                  {text("操作权限", "Permissions")}
+                </legend>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {scopes.map((scope) => (
+                    <label key={scope} className="flex gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={permissions.includes(scope)}
+                        onChange={(e) =>
+                          setPermissions((old) =>
+                            e.target.checked
+                              ? [...old, scope]
+                              : old.filter((s) => s !== scope),
+                          )
+                        }
+                      />
+                      {scope}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="flex flex-wrap gap-4">
+                <label className="space-y-2 text-sm">
+                  <span className="block">{text("有效期", "Expiry")}</span>
+                  <select
+                    className={selectClass}
+                    value={expiry}
+                    onChange={(e) => setExpiry(e.target.value)}
+                  >
+                    {["7", "30", "90", ""].map((v) => (
+                      <option key={v} value={v}>
+                        {v
+                          ? `${v} ${text("天", "days")}`
+                          : text("永不过期", "Never")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-2 text-sm">
+                  <span className="block">
+                    {text("并发会话上限", "Concurrent sessions")}
+                  </span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    required
+                    value={concurrency}
+                    onChange={(e) => setConcurrency(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            </fieldset>
+            {stepUp?.target === "create" ? (
+              <MfaStepUpDialog
+                inline
+                open
+                methods={stepUp.methods}
+                title={text(
+                  "验证身份并创建密钥",
+                  "Verify identity to create key",
+                )}
+                description={text(
+                  "在这里完成验证后，将自动按上面的配置创建密钥。",
+                  "Verify here to automatically create the key with the settings above.",
+                )}
+                verifying={stepUp.verifying}
+                onVerificationStart={() => startVerification(stepUp.id)}
+                onVerificationEnd={() => endVerification(stepUp.id)}
+                onCancel={cancelStepUp}
+                onVerified={() => finishStepUp(stepUp.id)}
+              />
+            ) : (
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  Boolean(stepUp) ||
+                  !name.trim() ||
+                  !projects.length ||
+                  !permissions.length
+                }
+              >
+                {text("创建密钥", "Create key")}
+              </Button>
+            )}
           </form>
           {!access.tokens.length && (
             <p className="text-sm text-muted-foreground">
@@ -508,7 +593,7 @@ export function McpPanel() {
               </div>
               <Button
                 variant="outline"
-                disabled={!key.isActive || busy}
+                disabled={!key.isActive || busy || Boolean(stepUp)}
                 onClick={() => setRevoking(key.id)}
               >
                 {text("撤销", "Revoke")}
@@ -673,11 +758,15 @@ export function McpPanel() {
             disabled={busy}
             onClick={() => {
               if (!revoking) return;
-              void mutate(async () => {
-                await revokeMcpKey(revoking);
-                setRevoking(null);
-                await refresh();
-              });
+              void mutate(
+                async () => {
+                  await revokeMcpKey(revoking);
+                  setRevoking(null);
+                  await refresh();
+                },
+                true,
+                "revoke",
+              );
             }}
           >
             {text("确认撤销", "Confirm revoke")}
@@ -685,13 +774,21 @@ export function McpPanel() {
         </DialogContent>
       </Dialog>
       <MfaStepUpDialog
-        open={Boolean(stepUp)}
+        open={stepUp?.target === "revoke"}
         methods={stepUp?.methods ?? []}
-        onCancel={() => setStepUp(null)}
-        onVerified={async () => {
-          const pending = stepUp;
-          setStepUp(null);
-          await pending?.retry();
+        verifying={stepUp?.verifying}
+        onVerificationStart={() =>
+          stepUp ? startVerification(stepUp.id) : false
+        }
+        onVerificationEnd={() => {
+          if (stepUp) endVerification(stepUp.id);
+        }}
+        onCancel={() => {
+          cancelStepUp();
+          setRevoking(null);
+        }}
+        onVerified={() => {
+          if (stepUp) return finishStepUp(stepUp.id);
         }}
       />
     </div>

@@ -25,6 +25,12 @@ export type MfaStepUpDialogProps = {
   methods: MfaStepUpMethod[];
   onVerified: () => Promise<void> | void;
   onCancel: () => void;
+  verifying?: boolean;
+  onVerificationStart?: () => boolean;
+  onVerificationEnd?: () => void;
+  inline?: boolean;
+  title?: string;
+  description?: string;
 };
 
 function readableError(error: unknown, fallback: string) {
@@ -50,6 +56,12 @@ export function MfaStepUpDialog({
   methods,
   onVerified,
   onCancel,
+  verifying = false,
+  onVerificationStart,
+  onVerificationEnd,
+  inline = false,
+  title,
+  description,
 }: MfaStepUpDialogProps) {
   const { t } = useTranslation();
   const availableMethods = useMemo(
@@ -60,10 +72,13 @@ export function MfaStepUpDialog({
     availableMethods.includes("totp") ? "totp" : "webauthn",
   );
   const [totpCode, setTotpCode] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [localLoading, setLoading] = useState(false);
+  const loading = localLoading || verifying;
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!open) {
+      setError("");
       setTotpCode("");
       setLoading(false);
       return;
@@ -74,11 +89,14 @@ export function MfaStepUpDialog({
   async function verify() {
     if (loading) return;
     if (method === "totp" && !/^\d{6}$/.test(totpCode)) {
-      toast.error(t("auth.stepUpTotpRequired"));
+      if (inline) setError(t("auth.stepUpTotpRequired"));
+      else toast.error(t("auth.stepUpTotpRequired"));
       return;
     }
 
+    if (onVerificationStart && !onVerificationStart()) return;
     setLoading(true);
+    setError("");
     try {
       if (method === "totp") {
         await stepUpWithTotp(totpCode);
@@ -88,24 +106,27 @@ export function MfaStepUpDialog({
       await onVerified();
     } catch (error) {
       const webAuthnErrorKey = getWebAuthnErrorTranslationKey(error);
-      toast.error(
-        webAuthnErrorKey
-          ? t(webAuthnErrorKey)
-          : readableError(error, t("auth.stepUpFailed")),
-      );
+      const message = webAuthnErrorKey
+        ? t(webAuthnErrorKey)
+        : readableError(error, t("auth.stepUpFailed"));
+      if (inline) setError(message);
+      else toast.error(message);
     } finally {
       setLoading(false);
+      onVerificationEnd?.();
     }
   }
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && !loading) onCancel();
-      }}
-    >
-      <DialogContent className="sm:max-w-sm">
+  const content = (
+    <>
+      {inline ? (
+        <div className="space-y-2">
+          <h4 className="font-medium">{title ?? t("auth.stepUpTitle")}</h4>
+          <p className="text-sm text-muted-foreground">
+            {description ?? t("auth.stepUpDescription")}
+          </p>
+        </div>
+      ) : (
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="size-4 text-accent-brand" />
@@ -113,91 +134,115 @@ export function MfaStepUpDialog({
           </DialogTitle>
           <DialogDescription>{t("auth.stepUpDescription")}</DialogDescription>
         </DialogHeader>
+      )}
+      {inline && error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
-        {availableMethods.length === 0 ? (
-          <p className="border border-amber-500/40 bg-amber-500/5 px-3 py-3 text-xs text-muted-foreground">
-            {t("auth.stepUpNoMethods")}
-          </p>
-        ) : availableMethods.length > 1 ? (
-          <div className="grid grid-cols-2 gap-2" role="tablist">
-            {availableMethods.includes("webauthn") && (
-              <Button
-                type="button"
-                variant={method === "webauthn" ? "default" : "outline"}
-                aria-selected={method === "webauthn"}
-                onClick={() => setMethod("webauthn")}
-                disabled={loading}
-              >
-                <Fingerprint className="size-3.5" />
-                {t("auth.usePasskey")}
-              </Button>
-            )}
-            {availableMethods.includes("totp") && (
-              <Button
-                type="button"
-                variant={method === "totp" ? "default" : "outline"}
-                aria-selected={method === "totp"}
-                onClick={() => setMethod("totp")}
-                disabled={loading}
-              >
-                {t("auth.useTotpAuthenticator")}
-              </Button>
-            )}
-          </div>
-        ) : null}
-
-        {availableMethods.length > 0 && method === "totp" ? (
-          <div className="space-y-2">
-            <label htmlFor="mfa-step-up-totp" className="text-xs font-medium">
-              {t("auth.totpAuthenticatorLabel")}
-            </label>
-            <Input
-              id="mfa-step-up-totp"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="000000"
-              value={totpCode}
-              disabled={loading}
-              onChange={(event) =>
-                setTotpCode(event.target.value.replace(/\D/g, ""))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void verify();
-              }}
-              className="text-center font-mono text-xl tracking-normal"
-              autoFocus
-            />
-          </div>
-        ) : availableMethods.includes("webauthn") ? (
-          <p className="border border-border/70 bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
-            {t("auth.passkeyStepUpDescription")}
-          </p>
-        ) : null}
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel}
-            disabled={loading}
-          >
-            {t("common.cancel")}
-          </Button>
-          {availableMethods.length > 0 && (
+      {availableMethods.length === 0 ? (
+        <p className="border border-amber-500/40 bg-amber-500/5 px-3 py-3 text-xs text-muted-foreground">
+          {t("auth.stepUpNoMethods")}
+        </p>
+      ) : availableMethods.length > 1 ? (
+        <div className="grid grid-cols-2 gap-2" role="tablist">
+          {availableMethods.includes("webauthn") && (
             <Button
               type="button"
-              onClick={() => void verify()}
+              variant={method === "webauthn" ? "default" : "outline"}
+              aria-selected={method === "webauthn"}
+              onClick={() => setMethod("webauthn")}
               disabled={loading}
             >
-              {loading && <Loader2 className="size-3 animate-spin" />}
-              {method === "webauthn"
-                ? t("auth.verifyWithPasskey")
-                : t("auth.verifyCode")}
+              <Fingerprint className="size-3.5" />
+              {t("auth.usePasskey")}
             </Button>
           )}
-        </DialogFooter>
-      </DialogContent>
+          {availableMethods.includes("totp") && (
+            <Button
+              type="button"
+              variant={method === "totp" ? "default" : "outline"}
+              aria-selected={method === "totp"}
+              onClick={() => setMethod("totp")}
+              disabled={loading}
+            >
+              {t("auth.useTotpAuthenticator")}
+            </Button>
+          )}
+        </div>
+      ) : null}
+
+      {availableMethods.length > 0 && method === "totp" ? (
+        <div className="space-y-2">
+          <label htmlFor="mfa-step-up-totp" className="text-xs font-medium">
+            {t("auth.totpAuthenticatorLabel")}
+          </label>
+          <Input
+            id="mfa-step-up-totp"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="000000"
+            value={totpCode}
+            disabled={loading}
+            onChange={(event) =>
+              setTotpCode(event.target.value.replace(/\D/g, ""))
+            }
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void verify();
+              }
+            }}
+            className="text-center font-mono text-xl tracking-normal"
+            autoFocus
+          />
+        </div>
+      ) : availableMethods.includes("webauthn") ? (
+        <p className="border border-border/70 bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+          {t("auth.passkeyStepUpDescription")}
+        </p>
+      ) : null}
+
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={loading && !inline}
+        >
+          {t("common.cancel")}
+        </Button>
+        {availableMethods.length > 0 && (
+          <Button
+            type="button"
+            onClick={() => void verify()}
+            disabled={loading}
+          >
+            {loading && <Loader2 className="size-3 animate-spin" />}
+            {method === "webauthn"
+              ? t("auth.verifyWithPasskey")
+              : t("auth.verifyCode")}
+          </Button>
+        )}
+      </DialogFooter>
+    </>
+  );
+  if (inline)
+    return open ? (
+      <div className="space-y-4 rounded-md border border-border bg-muted/30 p-4">
+        {content}
+      </div>
+    ) : null;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !loading) onCancel();
+      }}
+    >
+      <DialogContent className="sm:max-w-sm">{content}</DialogContent>
     </Dialog>
   );
 }

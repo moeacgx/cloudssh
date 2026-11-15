@@ -3,20 +3,23 @@ import { authApi, handleApiError } from "@/main-axios";
 export type MfaStepUpMethod = "totp" | "webauthn";
 
 export function getMfaStepUpMethods(error: unknown): MfaStepUpMethod[] | null {
+  if (!error || typeof error !== "object") return null;
   const value = error as {
     code?: unknown;
     details?: { code?: unknown; methods?: unknown };
+    response?: { data?: { code?: unknown; methods?: unknown } };
   };
+  const details = value.response?.data ?? value.details;
   const code =
-    typeof value.code === "string"
-      ? value.code
-      : typeof value.details?.code === "string"
-        ? value.details.code
+    typeof details?.code === "string"
+      ? details.code
+      : typeof value.code === "string"
+        ? value.code
         : undefined;
   if (code !== "MFA_STEP_UP_REQUIRED") return null;
 
-  const methods = Array.isArray(value.details?.methods)
-    ? value.details.methods.filter(
+  const methods = Array.isArray(details?.methods)
+    ? details.methods.filter(
         (method): method is MfaStepUpMethod =>
           method === "totp" || method === "webauthn",
       )
