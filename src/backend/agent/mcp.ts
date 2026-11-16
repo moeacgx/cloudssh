@@ -142,7 +142,7 @@ export function createMcpRouter(
                 entry.operationCommitted = true;
               },
             });
-            entry.operationCommitted = tool.mutating;
+            if (!tool.commitObserved) entry.operationCommitted = tool.mutating;
             entry.success = true;
             entry.code = null;
             await complete();

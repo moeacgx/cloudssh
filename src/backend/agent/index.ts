@@ -6,6 +6,7 @@ import {
   SqliteAgentCredentialStore,
 } from "./auth.js";
 import { createMcpRouter } from "./mcp.js";
+import { McpFileTransfers } from "./mcp-files.js";
 import { createMcpAdminRouter } from "./mcp-admin.js";
 import { defaultAgentTokenAdminDependencies } from "./token-admin.js";
 import { UnavailableJobDriver, UnavailableSessionDriver } from "./drivers.js";
@@ -146,7 +147,13 @@ const app = createAgentApp({
   audit,
 });
 app.use(cookieParser());
-const mcpServices = { servers, sessions, jobs, files: fileService };
+const mcpServices = {
+  servers,
+  sessions,
+  jobs,
+  files: fileService,
+  transfers: fileService ? new McpFileTransfers(fileService) : undefined,
+};
 const mcpHistory = security.createMcpHistory(sqlite);
 app.use(
   "/agent/mcp",
@@ -221,6 +228,7 @@ shutdownCleanupRegistry.register("agent-api", async () => {
   const activeMaintenance = maintenancePromise;
   await closeHttpServer(server);
   await activeMaintenance;
+  await mcpServices.transfers?.close();
   await jobs.shutdown();
   await sessionDriver.shutdown?.();
   await recordings.checkpointActive();
