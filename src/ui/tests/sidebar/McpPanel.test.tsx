@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -305,5 +306,136 @@ describe("MCP management", () => {
         params: { page: 1, tool: "", tokenId: "", status: "error" },
       }),
     );
+  });
+  describe("instance admin view of other-account keys", () => {
+    const past = "2020-01-02T03:04:05.000Z";
+    const future = "2099-05-06T07:08:09.000Z";
+    const owner = (username: string | null, isCurrentUser = false) => ({
+      userId: username ? `u-${username}` : null,
+      username,
+      isCurrentUser,
+    });
+    const key = (
+      id: string,
+      name: string,
+      overrides: Record<string, unknown> = {},
+    ) => ({
+      id,
+      name,
+      tokenPrefix: `cssh_${id}`,
+      scopes: ["sessions:read"],
+      projectIds: ["p1"],
+      isActive: 1,
+      expiresAt: future,
+      lastUsedAt: null,
+      ...overrides,
+    });
+
+    function serveTokens(
+      tokens: ReturnType<typeof key>[],
+      isInstanceAdmin = true,
+    ) {
+      http.get.mockImplementation(async (url: string) => ({
+        data: url.endsWith("catalog")
+          ? { tools: [] }
+          : url.endsWith("history")
+            ? { records: [], total: 0, isInstanceAdmin }
+            : {
+                projects: [{ id: "p1", name: "Production" }],
+                tokens,
+                isInstanceAdmin,
+              },
+      }));
+    }
+
+    async function openKeyCard(name: string) {
+      fireEvent.click(screen.getByRole("button", { name: "Access keys" }));
+      const title = await screen.findByText(name);
+      const card = title.closest("h4")?.parentElement?.parentElement;
+      if (!card) throw new Error(`Key card for ${name} not found`);
+      return card as HTMLElement;
+    }
+
+    const adminTokens = () => [
+      key("own", "Own key", { owner: owner("admin", true) }),
+      key("revoked", "Bob revoked key", {
+        isActive: 0,
+        owner: owner("bob"),
+      }),
+      key("expired", "Carol expired key", {
+        expiresAt: past,
+        owner: owner("carol"),
+      }),
+      key("active", "Dave active key", { owner: owner("dave") }),
+      key("orphan", "Orphan key", { owner: owner(null) }),
+    ];
+
+    it("shows owner, status and expiry on a revoked other-account key", async () => {
+      serveTokens(adminTokens());
+      render(<McpPanel />);
+      const card = await openKeyCard("Bob revoked key");
+      const section = screen.getByText("Keys from other accounts")
+        .parentElement as HTMLElement;
+      expect(section.contains(card)).toBe(true);
+      expect(within(card).getByText(/bob/)).toBeTruthy();
+      expect(within(card).getByText(/Revoked/)).toBeTruthy();
+      expect(within(card).queryByText(/Active|Expired/)).toBeNull();
+      expect(card.textContent).toContain(
+        `Expires: ${new Date(future).toLocaleString()}`,
+      );
+      expect(card.textContent).toContain(
+        "agentIntegration.management.scopeRead",
+      );
+      const revoke = within(card).getByRole("button", { name: "Revoke" });
+      expect((revoke as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("shows Expired with the past expiry and still allows revoking that key", async () => {
+      serveTokens(adminTokens());
+      http.delete.mockResolvedValue({});
+      render(<McpPanel />);
+      const card = await openKeyCard("Carol expired key");
+      expect(within(card).getByText(/carol/)).toBeTruthy();
+      expect(within(card).getByText(/Expired/)).toBeTruthy();
+      expect(within(card).queryByText(/Active|Revoked/)).toBeNull();
+      expect(card.textContent).toContain(
+        `Expires: ${new Date(past).toLocaleString()}`,
+      );
+      fireEvent.click(within(card).getByRole("button", { name: "Revoke" }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Confirm revoke" }),
+      );
+      await waitFor(() =>
+        expect(http.delete).toHaveBeenCalledWith(
+          "/agent/admin/v1/mcp/tokens/expired",
+        ),
+      );
+    });
+
+    it("keeps Active, unknown-owner and own-key cards consistent", async () => {
+      serveTokens(adminTokens());
+      render(<McpPanel />);
+      const active = await openKeyCard("Dave active key");
+      expect(within(active).getByText(/dave/)).toBeTruthy();
+      expect(within(active).getByText(/Active/)).toBeTruthy();
+      const orphan = await openKeyCard("Orphan key");
+      expect(within(orphan).getByText(/Unknown account/)).toBeTruthy();
+      const own = await openKeyCard("Own key");
+      const section = screen.getByText("Keys from other accounts")
+        .parentElement as HTMLElement;
+      expect(section.contains(own)).toBe(false);
+      expect(within(own).getByText(/Active/)).toBeTruthy();
+      expect(within(own).queryByText(/admin/)).toBeNull();
+      expect(own.textContent).toContain(
+        `Expires: ${new Date(future).toLocaleString()}`,
+      );
+    });
+
+    it("hides the other-account section from non-admin responses", async () => {
+      serveTokens([key("own", "Own key", { owner: owner("me", true) })], false);
+      render(<McpPanel />);
+      await openKeyCard("Own key");
+      expect(screen.queryByText("Keys from other accounts")).toBeNull();
+    });
   });
 });
