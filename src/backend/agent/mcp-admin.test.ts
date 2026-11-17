@@ -73,7 +73,21 @@ describe("MCP key and history management", () => {
     const filters = { page: 1, tool: "", tokenId: "", status: "" };
     expect(history.list("owner", false, filters)).toMatchObject({
       total: 1,
-      records: [expect.objectContaining({ tokenName: "Key", projectId: "p2" })],
+      isInstanceAdmin: false,
+      records: [
+        expect.objectContaining({
+          tokenName: "Key",
+          projectId: "p2",
+          owner: {
+            userId: "owner",
+            username: "Owner",
+            isCurrentUser: true,
+          },
+        }),
+      ],
+    });
+    expect(history.list("other", true, filters).records[0]).toMatchObject({
+      owner: { userId: "owner", username: "Owner", isCurrentUser: false },
     });
     expect(history.list("other", false, filters).total).toBe(0);
     expect(history.list("other", true, filters).total).toBe(1);
@@ -235,6 +249,20 @@ describe("MCP key and history management", () => {
     const list = await repository.listTokens({ ...other, userId: "owner" });
     expect(JSON.stringify(list)).not.toContain(created.token);
     expect(list[0].projectIds).toEqual(["p1", "p2"]);
+    expect(list[0].owner).toEqual({
+      userId: "owner",
+      username: "Owner",
+      isCurrentUser: true,
+    });
+    const adminList = await repository.listTokens({
+      ...other,
+      isInstanceAdmin: true,
+    });
+    expect(adminList[0].owner).toEqual({
+      userId: "owner",
+      username: "Owner",
+      isCurrentUser: false,
+    });
     const store = new SqliteAgentCredentialStore(
       sqlite,
       undefined,
