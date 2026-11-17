@@ -154,10 +154,48 @@ export class McpHistory {
       event.token_id AS tokenId, event.token_name AS tokenName, event.success, event.duration_ms AS durationMs,
       event.stage, event.request_id AS requestId,
       event.operation_dispatched AS operationDispatched, event.operation_committed AS operationCommitted,
+      event.owner_user_id AS ownerUserId,
       event.code, event.created_at AS createdAt ${from} WHERE ${where}
       ORDER BY event.created_at DESC, event.id DESC LIMIT 25 OFFSET ?`,
       )
-      .all(...params, (input.page - 1) * 25);
-    return { records, total, page: input.page, pageSize: 25 };
+      .all(...params, (input.page - 1) * 25) as Array<
+      Record<string, unknown> & { ownerUserId: string | null }
+    >;
+    const ownerIds = [
+      ...new Set(
+        records
+          .map((record) => record.ownerUserId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const usernames = new Map<string, string | null>();
+    const usersTable = ownerIds.length
+      ? this.source
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'",
+          )
+          .get()
+      : undefined;
+    if (usersTable && ownerIds.length) {
+      const placeholders = ownerIds.map(() => "?").join(",");
+      const owners = this.source
+        .prepare(`SELECT id, username FROM users WHERE id IN (${placeholders})`)
+        .all(...ownerIds) as Array<{ id: string; username: string | null }>;
+      for (const owner of owners) usernames.set(owner.id, owner.username);
+    }
+    return {
+      records: records.map(({ ownerUserId, ...record }) => ({
+        ...record,
+        owner: {
+          userId: ownerUserId,
+          username: ownerUserId ? (usernames.get(ownerUserId) ?? null) : null,
+          isCurrentUser: ownerUserId === userId,
+        },
+      })),
+      total,
+      page: input.page,
+      pageSize: 25,
+      isInstanceAdmin: admin,
+    };
   }
 }
