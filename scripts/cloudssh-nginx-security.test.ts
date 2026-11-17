@@ -6,7 +6,7 @@ const configurations = ["docker/nginx.conf", "docker/nginx-https.conf"];
 function extractLocation(configuration: string, marker: string): string {
   const start = configuration.indexOf(marker);
   if (start < 0) return "";
-  const end = configuration.indexOf("\\n        }", start);
+  const end = configuration.indexOf("\n        }", start);
   return end < 0 ? configuration.slice(start) : configuration.slice(start, end);
 }
 
@@ -88,11 +88,30 @@ describe.each(configurations)("%s Agent 入口安全约束", (filePath) => {
       "proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;",
     );
     expect(location).toContain(
-      "proxy_set_header X-Forwarded-For $remote_addr;",
+      "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
     );
     expect(location).toContain(
       'add_header Cache-Control "private, no-store" always;',
     );
+  });
+
+  it("仅对成功的哈希静态资源启用一年 immutable 缓存", () => {
+    const marker =
+      "location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {";
+    const location = extractLocation(configuration, marker);
+    const cacheControlDirectives = location
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => !line.startsWith("#"))
+      .filter((line) => /^add_header\s+Cache-Control\b/.test(line));
+
+    expect(location).not.toBe("");
+    expect(location).toContain("expires 1y;");
+    expect(cacheControlDirectives).toHaveLength(1);
+    expect(cacheControlDirectives[0]).toMatch(
+      /^add_header\s+Cache-Control\s+"public,\s*max-age=31536000,\s*immutable"\s*;$/,
+    );
+    expect(location).toContain("try_files $uri =404;");
   });
 });
 
