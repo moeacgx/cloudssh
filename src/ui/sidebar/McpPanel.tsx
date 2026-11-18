@@ -25,6 +25,7 @@ import {
   mcpConfiguration,
   mcpEndpoint,
   revokeMcpKey,
+  type McpKey,
   type McpTool,
   type McpRecord,
 } from "@/api/mcp-api";
@@ -38,6 +39,18 @@ const scopes: AgentScope[] = [
   "files:read",
   "files:write",
 ];
+const scopeLabelKeys: Record<AgentScope, string> = {
+  "sessions:create": "agentIntegration.management.scopeCreate",
+  "sessions:read": "agentIntegration.management.scopeRead",
+  "sessions:write": "agentIntegration.management.scopeWrite",
+  "sessions:close": "agentIntegration.management.scopeClose",
+  "jobs:execute": "agentIntegration.management.scopeJobs",
+  "servers:create": "agentIntegration.management.scopeServersCreate",
+  "quick-connections:create":
+    "agentIntegration.management.scopeQuickConnectionsCreate",
+  "files:read": "agentIntegration.management.scopeFilesRead",
+  "files:write": "agentIntegration.management.scopeFilesWrite",
+};
 
 type PendingStepUp = {
   id: number;
@@ -48,16 +61,18 @@ type PendingStepUp = {
 };
 
 export function McpPanel() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
   const text = (cn: string, en: string) => (zh ? cn : en);
+  const scopeLabel = (scope: AgentScope) => t(scopeLabelKeys[scope]);
   const [tab, setTab] = useState(0);
   const [client, setClient] = useState<"Codex" | "Cursor">("Codex");
   const [access, setAccess] = useState<
     Awaited<ReturnType<typeof loadMcpAccess>>
-  >({ projects: [], tokens: [] });
+  >({ projects: [], tokens: [], isInstanceAdmin: false });
   const [tools, setTools] = useState<McpTool[]>([]);
   const [records, setRecords] = useState<McpRecord[]>([]);
+  const [historyAdmin, setHistoryAdmin] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState("");
@@ -167,6 +182,7 @@ export function McpPanel() {
     const data = await loadMcpHistory(page, filter, keyFilter, status);
     setRecords(data.records);
     setTotal(data.total);
+    setHistoryAdmin(Boolean(data.isInstanceAdmin));
   }, [page, filter, keyFilter, status]);
   useEffect(() => {
     void refresh();
@@ -181,6 +197,7 @@ export function McpPanel() {
         if (active) {
           setRecords(data.records);
           setTotal(data.total);
+          setHistoryAdmin(Boolean(data.isInstanceAdmin));
         }
       })
       .catch(() => {
@@ -219,6 +236,46 @@ export function McpPanel() {
   );
   const selectClass =
     "h-9 rounded-md border border-border bg-background px-3 text-sm";
+  const keyCard = (key: McpKey, showOwner: boolean) => (
+    <div
+      key={key.id}
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
+    >
+      <div>
+        <h4 className="font-medium">
+          {key.name}{" "}
+          <span className="text-xs text-muted-foreground">
+            {!key.isActive
+              ? text("已撤销", "Revoked")
+              : key.expiresAt && Date.parse(key.expiresAt) <= Date.now()
+                ? text("已过期", "Expired")
+                : text("有效", "Active")}
+          </span>
+          {showOwner && (
+            <span className="ml-2 text-xs text-muted-foreground">
+              {key.owner?.username ?? text("未知账号", "Unknown account")}
+            </span>
+          )}
+        </h4>
+        <p className="text-xs text-muted-foreground">
+          {key.tokenPrefix}… · {text("最近使用", "Last used")}:{" "}
+          {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "—"}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span>{key.scopes.map((scope) => scopeLabel(scope)).join(", ")}</span>{" "}
+          · {text("到期", "Expires")}:{" "}
+          {key.expiresAt ? new Date(key.expiresAt).toLocaleString() : "—"}
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        disabled={!key.isActive || busy || Boolean(stepUp)}
+        onClick={() => setRevoking(key.id)}
+      >
+        {text("撤销", "Revoke")}
+      </Button>
+    </div>
+  );
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -486,7 +543,7 @@ export function McpPanel() {
                           )
                         }
                       />
-                      {scope}
+                      <span title={scope}>{scopeLabel(scope)}</span>
                     </label>
                   ))}
                 </div>
@@ -562,44 +619,20 @@ export function McpPanel() {
               {text("暂无调用密钥", "No access keys")}
             </p>
           )}
-          {access.tokens.map((key) => (
-            <div
-              key={key.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
-            >
-              <div>
-                <h4 className="font-medium">
-                  {key.name}{" "}
-                  <span className="text-xs text-muted-foreground">
-                    {!key.isActive
-                      ? text("已撤销", "Revoked")
-                      : key.expiresAt && Date.parse(key.expiresAt) <= Date.now()
-                        ? text("已过期", "Expired")
-                        : text("有效", "Active")}
-                  </span>
-                </h4>
-                <p className="text-xs text-muted-foreground">
-                  {key.tokenPrefix}… · {text("最近使用", "Last used")}:{" "}
-                  {key.lastUsedAt
-                    ? new Date(key.lastUsedAt).toLocaleString()
-                    : "—"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {key.scopes.join(", ")} · {text("到期", "Expires")}:{" "}
-                  {key.expiresAt
-                    ? new Date(key.expiresAt).toLocaleString()
-                    : "—"}
-                </p>
+          {access.tokens
+            .filter((key) => key.owner?.isCurrentUser !== false)
+            .map((key) => keyCard(key, false))}
+          {access.isInstanceAdmin &&
+            access.tokens.some((key) => key.owner?.isCurrentUser === false) && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">
+                  {text("其他账号的密钥", "Keys from other accounts")}
+                </h3>
+                {access.tokens
+                  .filter((key) => key.owner?.isCurrentUser === false)
+                  .map((key) => keyCard(key, true))}
               </div>
-              <Button
-                variant="outline"
-                disabled={!key.isActive || busy || Boolean(stepUp)}
-                onClick={() => setRevoking(key.id)}
-              >
-                {text("撤销", "Revoke")}
-              </Button>
-            </div>
-          ))}
+            )}
         </div>
       )}
       {tab === 3 && (
@@ -655,6 +688,7 @@ export function McpPanel() {
                 <tr>
                   {[
                     text("时间", "Time"),
+                    ...(historyAdmin ? [text("账号", "Account")] : []),
                     text("工具", "Tool"),
                     text("密钥 / 项目", "Key / project"),
                     text("结果", "Result"),
@@ -672,6 +706,14 @@ export function McpPanel() {
                     <td className="whitespace-nowrap p-3">
                       {new Date(r.createdAt).toLocaleString()}
                     </td>
+                    {historyAdmin && (
+                      <td className="p-3">
+                        {r.owner?.isCurrentUser
+                          ? text("当前账号", "Current account")
+                          : (r.owner?.username ??
+                            text("未知账号", "Unknown account"))}
+                      </td>
+                    )}
                     <td className="p-3 font-mono text-xs">{r.tool}</td>
                     <td className="p-3">
                       {r.tokenName}

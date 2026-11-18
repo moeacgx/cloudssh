@@ -2,6 +2,11 @@ import { agentApi } from "@/main-axios";
 import type { AgentScope, AgentProjectOption } from "./agent-admin-api";
 
 const prefix = "/agent/admin/v1/mcp";
+export interface McpOwner {
+  userId: string | null;
+  username: string | null;
+  isCurrentUser: boolean;
+}
 export interface McpKey {
   id: string;
   name: string;
@@ -11,6 +16,7 @@ export interface McpKey {
   isActive: number;
   expiresAt: string | null;
   lastUsedAt: string | null;
+  owner?: McpOwner;
 }
 export interface McpTool {
   name: string;
@@ -28,6 +34,7 @@ export interface McpRecord {
   durationMs: number;
   code: string | null;
   createdAt: string;
+  owner?: McpOwner;
 }
 export function mcpEndpoint() {
   const base = agentApi.defaults.baseURL ?? "";
@@ -51,9 +58,11 @@ export function mcpConfiguration(endpoint: string, client: "Codex" | "Cursor") {
 }
 export async function loadMcpAccess() {
   return (
-    await agentApi.get<{ projects: AgentProjectOption[]; tokens: McpKey[] }>(
-      `${prefix}/tokens`,
-    )
+    await agentApi.get<{
+      projects: AgentProjectOption[];
+      tokens: McpKey[];
+      isInstanceAdmin?: boolean;
+    }>(`${prefix}/tokens`)
   ).data;
 }
 export async function loadMcpTools() {
@@ -84,9 +93,10 @@ export async function loadMcpHistory(
   status: string,
 ) {
   return (
-    await agentApi.get<{ records: McpRecord[]; total: number }>(
-      `${prefix}/history`,
-      { params: { page, tool, tokenId, status } },
-    )
+    await agentApi.get<{
+      records: McpRecord[];
+      total: number;
+      isInstanceAdmin?: boolean;
+    }>(`${prefix}/history`, { params: { page, tool, tokenId, status } })
   ).data;
 }

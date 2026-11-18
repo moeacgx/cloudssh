@@ -77,9 +77,12 @@ export class AgentTokenAdminRepository {
                 token.is_active AS isActive, token.expires_at AS expiresAt,
                 token.last_used_at AS lastUsedAt, token.created_at AS createdAt,
                 token.revoked_at AS revokedAt,
+                token.created_by_user_id AS createdByUserId,
+                owner.username AS ownerUsername,
                 GROUP_CONCAT(DISTINCT grant_row.project_id) AS projectIds
            FROM agent_access_tokens token
            LEFT JOIN agent_token_projects grant_row ON grant_row.token_id = token.id
+           LEFT JOIN users owner ON owner.id = token.created_by_user_id
           WHERE (? = 1 OR token.created_by_user_id = ?)
           GROUP BY token.id
           ORDER BY token.created_at DESC`,
@@ -89,13 +92,22 @@ export class AgentTokenAdminRepository {
         scopes: string;
         accessMode: "all" | "selected";
         projectIds: string | null;
+        createdByUserId: string | null;
+        ownerUsername: string | null;
       }
     >;
-    return tokens.map((token) => ({
-      ...token,
-      scopes: JSON.parse(token.scopes) as AgentScope[],
-      projectIds: token.projectIds ? token.projectIds.split(",") : [],
-    }));
+    return tokens.map(
+      ({ createdByUserId, ownerUsername, scopes, projectIds, ...token }) => ({
+        ...token,
+        scopes: JSON.parse(scopes) as AgentScope[],
+        projectIds: projectIds ? projectIds.split(",") : [],
+        owner: {
+          userId: createdByUserId,
+          username: ownerUsername,
+          isCurrentUser: createdByUserId === input.userId,
+        },
+      }),
+    );
   }
 
   async createToken(input: {
@@ -259,12 +271,15 @@ export function createAgentTokenAdminRouter(
     try {
       const authReq = authenticatedRequest(req);
       const projects = await manageableProjects(authReq);
+      const isInstanceAdmin = await dependencies.isInstanceAdmin(
+        authReq.userId,
+      );
       const tokens = await repository.listTokens({
         userId: authReq.userId,
         manageableProjectIds: projects.map((project) => project.id),
-        isInstanceAdmin: await dependencies.isInstanceAdmin(authReq.userId),
+        isInstanceAdmin,
       });
-      return res.json({ projects, tokens });
+      return res.json({ projects, tokens, isInstanceAdmin });
     } catch (error) {
       next(error);
     }
