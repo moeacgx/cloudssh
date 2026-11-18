@@ -71,6 +71,11 @@ jobs:
             --min-entrypoint-protocol "2" \
             --deployment-contract "cloudssh-self-update-v1" >/dev/null
           TAG="release-$PACKAGE_VERSION-tag"
+          NOTES="docs/releases/$PACKAGE_VERSION.md"
+          if [[ ! -s "$NOTES" ]] || [[ "$(head -n 1 "$NOTES")" != '## 本次版本主要更新' ]] || ! grep -qE '^[-*] .+' "$NOTES" || ! grep -Fq "...$TAG)" "$NOTES"; then
+            echo "请在 $NOTES 填写中文主要更新、具体变更条目及本版本的完整对比链接。" >&2
+            exit 1
+          fi
           REMOTE_TAG="$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')"
           RELEASES_FILE="$RUNNER_TEMP/cloudssh-releases.json"
           gh api --paginate --slurp \
@@ -337,8 +342,11 @@ jobs:
               -f name="CloudSSH $VERSION" \
               -F draft=true \
               -F prerelease=false \
-              -F generate_release_notes=true \
+              -F "body=@docs/releases/$VERSION.md" \
               --jq '.id')"
+          else
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$DRAFT_ID" \
+              -F "body=@docs/releases/$VERSION.md" >/dev/null
           fi
           echo "id=$DRAFT_ID" >> "$GITHUB_OUTPUT"
 
