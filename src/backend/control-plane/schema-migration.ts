@@ -6,6 +6,12 @@ import type Database from "better-sqlite3";
  */
 export function ensureControlPlaneSchema(sqlite: Database.Database): void {
   sqlite.transaction(() => {
+    const hasDeviceAuthSchema = sqlite
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_devices'",
+      )
+      .get();
+
     sqlite.exec(`
       CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY,
@@ -628,13 +634,19 @@ export function ensureControlPlaneSchema(sqlite: Database.Database): void {
             WHERE token.id = agent_token_projects.token_id
               AND token.project_id = agent_token_projects.project_id
          )
-       WHERE service_account_id IS NULL;
-
-      UPDATE agent_access_tokens
-         SET is_active = 0,
-             revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
-       WHERE is_active <> 0 OR revoked_at IS NULL;
+        WHERE service_account_id IS NULL;
     `);
+
+    // 仅在首次迁移到设备认证时撤销旧 Token。设备表与撤销操作在同一事务中提交，
+    // 后续启动不能再批量撤销复用此表的 MCP 调用密钥。
+    if (!hasDeviceAuthSchema) {
+      sqlite.exec(`
+        UPDATE agent_access_tokens
+           SET is_active = 0,
+               revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+         WHERE is_active <> 0 OR revoked_at IS NULL;
+      `);
+    }
 
     const auditColumns = sqlite
       .prepare("PRAGMA table_info(agent_audit_events)")

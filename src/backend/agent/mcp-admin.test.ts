@@ -52,6 +52,34 @@ async function key() {
 }
 
 describe("MCP key and history management", () => {
+  it.each(["selected", "all"] as const)(
+    "重复执行启动迁移后，%s 模式的 MCP 密钥仍可认证",
+    async (accessMode) => {
+      const created = (await new AgentTokenAdminRepository(sqlite).createToken({
+        ...input,
+        accessMode,
+        scopes: [...input.scopes],
+      }))!;
+      const credentials = new SqliteAgentCredentialStore(
+        sqlite,
+        undefined,
+        async () => input.projectIds,
+      );
+
+      ensureControlPlaneSchema(sqlite);
+      ensureControlPlaneSchema(sqlite);
+
+      expect(await credentials.findActiveByPrefix(created.tokenPrefix)).toEqual(
+        [
+          expect.objectContaining({
+            id: created.id,
+            projectIds: input.projectIds,
+          }),
+        ],
+      );
+    },
+  );
+
   it("删除来源项目及密钥后仍保留所有者和管理员的历史访问", async () => {
     sqlite.pragma("foreign_keys = ON");
     const created = await key();
@@ -128,11 +156,12 @@ describe("MCP key and history management", () => {
     expect(securitySave).toHaveBeenCalledTimes(1);
     expect(usageSave).toHaveBeenCalledTimes(1);
   });
-  it("真实 MCP 轮询不会触发主数据库强制保存", async () => {
+  it("启动迁移后可以通过 MCP 轮询且不会触发主数据库强制保存", async () => {
     const created = (await new AgentTokenAdminRepository(sqlite).createToken({
       ...input,
       scopes: ["jobs:execute"],
     }))!;
+    ensureControlPlaneSchema(sqlite);
     const securitySave = vi.fn();
     const usageSave = vi.fn();
     const credentials = new SqliteAgentCredentialStore(
@@ -278,6 +307,7 @@ describe("MCP key and history management", () => {
         tokenId: created.id,
       }),
     ).toBe(true);
+    ensureControlPlaneSchema(sqlite);
     expect(await store.findActiveByPrefix(created.tokenPrefix)).toEqual([]);
   });
   it("filters and paginates history without exposing other owners or old events", async () => {
