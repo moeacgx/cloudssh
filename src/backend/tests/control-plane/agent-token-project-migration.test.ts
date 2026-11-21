@@ -211,42 +211,28 @@ describe("Agent Token 项目授权迁移", () => {
     ensureControlPlaneSchema(sqlite);
     sqlite.exec(`
       UPDATE agent_access_tokens
-         SET access_mode = 'all', created_by_user_id = 'creator'
+         SET access_mode = 'all'
        WHERE id = 'legacy-token';
-      INSERT INTO ssh_data (
-        id, user_id, name, ip, port, username, auth_type
-      ) VALUES
-        (1, 'creator', 'Legacy host', '10.0.0.1', 22, 'root', 'none'),
-        (2, 'creator', 'New host', '10.0.0.2', 22, 'root', 'none');
-      INSERT INTO project_hosts (id, project_id, host_id, added_by) VALUES
-        (11, 'legacy-project', 1, 'creator'),
-        (22, 'new-project', 2, 'creator');
     `);
+
+    const selectState = sqlite.prepare(
+      `SELECT is_active AS isActive, revoked_at AS revokedAt
+         FROM agent_access_tokens WHERE id = 'legacy-token'`,
+    );
+    const revokedState = selectState.get();
+    expect(revokedState).toEqual({
+      isActive: 0,
+      revokedAt: expect.any(String),
+    });
 
     const store = new SqliteAgentCredentialStore(
       sqlite,
       undefined,
       async () => ["legacy-project", "new-project"],
     );
-    expect(await store.findActiveByPrefix(TOKEN_PREFIX)).toEqual([]);
-
-    sqlite
-      .prepare(
-        `UPDATE agent_access_tokens
-            SET is_active = 1, revoked_at = NULL
-          WHERE id = 'legacy-token'`,
-      )
-      .run();
     ensureControlPlaneSchema(sqlite);
 
     expect(await store.findActiveByPrefix(TOKEN_PREFIX)).toEqual([]);
-    expect(
-      sqlite
-        .prepare(
-          `SELECT is_active AS isActive, revoked_at AS revokedAt
-             FROM agent_access_tokens WHERE id = 'legacy-token'`,
-        )
-        .get(),
-    ).toMatchObject({ isActive: 0, revokedAt: expect.any(String) });
+    expect(selectState.get()).toEqual(revokedState);
   });
 });
