@@ -19,7 +19,9 @@ describe("CloudSSH 快速镜像构建工作流", () => {
     expect(workflow).toContain("docker/setup-qemu-action@");
     expect(workflow).toContain("docker/setup-buildx-action@");
     expect(workflow).toContain("docker/login-action@");
-    expect(workflow).toContain("docker/metadata-action@v5");
+    expect(workflow).toMatch(
+      /^\s*uses: docker\/metadata-action@[0-9a-f]{40}(?:[ \t]+#.*)?$/m,
+    );
     expect(workflow).toContain("docker/build-push-action@");
     expect(workflow).toContain("platforms: linux/amd64,linux/arm64");
     expect(workflow).toContain("push: true");
